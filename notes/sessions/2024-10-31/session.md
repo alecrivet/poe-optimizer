@@ -12,8 +12,10 @@
 ### Project Initialization
 1. **Created comprehensive phase documentation**
    - 6 phase markdown files with detailed implementation guides
+   - Master implementation guide (POE_Build_Optimizer_Guide_v2.md)
    - Each phase broken down into daily tasks with Claude Code prompts
    - Total: ~122KB of implementation documentation
+   - Located in: `notes/guides/`
 
 2. **Set up Git Repository**
    - Initialized git with main branch
@@ -48,13 +50,16 @@
 - `.gitmodules` - PathOfBuilding submodule configuration
 - `README.md` - Comprehensive project documentation
 - `requirements.txt` - All Python dependencies
-- `Phase1_PoB_Integration.md` - Week 1 implementation guide
-- `Phase2_Data_Access.md` - Week 2 implementation guide
-- `Phase3_Build_Representation.md` - Week 3 implementation guide
-- `Phase4_Optimization_Algorithms.md` - Week 4 implementation guide
-- `Phase5_Polish_Testing.md` - Week 5 implementation guide
-- `Phase6_Advanced_Features.md` - Week 6+ implementation guide
+- `notes/guides/POE_Build_Optimizer_Guide_v2.md` - Master implementation guide
+- `notes/guides/Phase1_PoB_Integration.md` - Week 1 implementation guide
+- `notes/guides/Phase2_Data_Access.md` - Week 2 implementation guide
+- `notes/guides/Phase3_Build_Representation.md` - Week 3 implementation guide
+- `notes/guides/Phase4_Optimization_Algorithms.md` - Week 4 implementation guide
+- `notes/guides/Phase5_Polish_Testing.md` - Week 5 implementation guide
+- `notes/guides/Phase6_Advanced_Features.md` - Week 6+ implementation guide
+- `notes/README.md` - Notes system documentation
 - `notes/SESSION_TEMPLATE.md` - Template for future sessions
+- `notes/sessions/2024-10-31/session.md` - Today's session notes
 - Empty `__init__.py` files for all Python packages
 
 ### Directory Structure Created
@@ -190,8 +195,8 @@ mkdir -p notes/sessions/2024-10-31 notes/references notes/decisions notes/todos
 ## References
 - PathOfBuilding repo: https://github.com/PathOfBuildingCommunity/PathOfBuilding
 - Project repo: https://github.com/alecrivet/poe-optimizer
-- Implementation guide: `POE_Build_Optimizer_Guide_v2.md`
-- Phase 1 guide: `Phase1_PoB_Integration.md`
+- Implementation guide: `notes/guides/POE_Build_Optimizer_Guide_v2.md`
+- Phase 1 guide: `notes/guides/Phase1_PoB_Integration.md`
 - PoB HeadlessWrapper: `PathOfBuilding/src/HeadlessWrapper.lua`
 
 ## Phase 1 Progress

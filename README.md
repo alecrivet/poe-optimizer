@@ -76,13 +76,13 @@ poe-optimizer/
 
 ## 📚 Documentation
 
-- **[Implementation Guide](POE_Build_Optimizer_Guide_v2.md)** - Complete technical guide
-- **[Phase 1: PoB Integration](Phase1_PoB_Integration.md)** - Week 1 tasks
-- **[Phase 2: Data Access](Phase2_Data_Access.md)** - Week 2 tasks
-- **[Phase 3: Build Representation](Phase3_Build_Representation.md)** - Week 3 tasks
-- **[Phase 4: Optimization Algorithms](Phase4_Optimization_Algorithms.md)** - Week 4 tasks
-- **[Phase 5: Polish & Testing](Phase5_Polish_Testing.md)** - Week 5 tasks
-- **[Phase 6: Advanced Features](Phase6_Advanced_Features.md)** - Week 6+ tasks
+- **[Implementation Guide](notes/guides/POE_Build_Optimizer_Guide_v2.md)** - Complete technical guide
+- **[Phase 1: PoB Integration](notes/guides/Phase1_PoB_Integration.md)** - Week 1 tasks
+- **[Phase 2: Data Access](notes/guides/Phase2_Data_Access.md)** - Week 2 tasks
+- **[Phase 3: Build Representation](notes/guides/Phase3_Build_Representation.md)** - Week 3 tasks
+- **[Phase 4: Optimization Algorithms](notes/guides/Phase4_Optimization_Algorithms.md)** - Week 4 tasks
+- **[Phase 5: Polish & Testing](notes/guides/Phase5_Polish_Testing.md)** - Week 5 tasks
+- **[Phase 6: Advanced Features](notes/guides/Phase6_Advanced_Features.md)** - Week 6+ tasks
 
 ## 🛠️ Requirements
 

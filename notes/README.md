@@ -8,6 +8,14 @@ This directory contains session notes, decisions, and references to help maintai
 notes/
 ├── README.md                    # This file
 ├── SESSION_TEMPLATE.md          # Template for daily sessions
+├── guides/                      # Implementation guides
+│   ├── POE_Build_Optimizer_Guide_v2.md  # Master guide
+│   ├── Phase1_PoB_Integration.md
+│   ├── Phase2_Data_Access.md
+│   ├── Phase3_Build_Representation.md
+│   ├── Phase4_Optimization_Algorithms.md
+│   ├── Phase5_Polish_Testing.md
+│   └── Phase6_Advanced_Features.md
 ├── sessions/                    # Daily session logs
 │   └── YYYY-MM-DD/
 │       ├── session.md           # Main session notes
