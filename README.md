@@ -15,7 +15,7 @@ An intelligent build optimization tool for Path of Exile that uses genetic algor
 
 ```bash
 # Clone with submodules
-git clone --recursive https://github.com/yourusername/poe-optimizer.git
+git clone --recursive https://github.com/alecrivet/poe-optimizer.git
 cd poe-optimizer
 
 # Create virtual environment
@@ -132,7 +132,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 📞 Contact
 
-- GitHub Issues: [Report bugs or request features](https://github.com/yourusername/poe-optimizer/issues)
+- GitHub Issues: [Report bugs or request features](https://github.com/alecrivet/poe-optimizer/issues)
 - PoE Forums: [Discussion thread](link-when-available)
 
 ## 🗺️ Roadmap
