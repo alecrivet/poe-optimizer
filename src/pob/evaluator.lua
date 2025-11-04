@@ -62,10 +62,35 @@ if not success then
     os.exit(1)
 end
 
--- Give PoB additional frames to complete calculations
-for i = 1, 5 do
+-- Manually trigger build calculations
+-- The key insight: after loading XML, we need to:
+-- 1. Set buildFlag = true to mark build as needing recalculation
+-- 2. Call OnFrame() which checks buildFlag and calls BuildOutput()
+-- OR directly call BuildOutput()
+
+-- First ensure build structure is initialized
+for i = 1, 3 do
     runCallback("OnFrame")
 end
+
+-- Now directly trigger the calculation engine
+if build and build.calcsTab and build.calcsTab.BuildOutput then
+    local calc_success, calc_err = pcall(function()
+        build.buildFlag = true  -- Mark build as needing calculation
+        build.calcsTab:BuildOutput()  -- Trigger calculations
+    end)
+
+    if not calc_success then
+        io.stderr:write('{"success":false,"error":"Failed to trigger calculations: ' .. tostring(calc_err):gsub('"', '\\"') .. '"}\n')
+        os.exit(1)
+    end
+else
+    io.stderr:write('{"success":false,"error":"Build calculation system not available"}\n')
+    os.exit(1)
+end
+
+-- Give calculations one more frame to complete
+runCallback("OnFrame")
 
 -- Extract statistics from the build
 local output = build and build.calcsTab and build.calcsTab.mainOutput
@@ -98,12 +123,21 @@ end
 local stats = {
     -- DPS metrics
     totalDPS = safeGet(output, "TotalDPS"),
+    combinedDPS = safeGet(output, "CombinedDPS"),
+    totalDotDPS = safeGet(output, "TotalDotDPS"),
     fullDPS = safeGet(output, "FullDPS"),
+    averageDamage = safeGet(output, "AverageDamage"),
+    speed = safeGet(output, "Speed"),
+    hitChance = safeGet(output, "AccuracyHitChance"),
+    critChance = safeGet(output, "CritChance"),
 
     -- Defensive stats
     totalEHP = safeGet(output, "TotalEHP"),
     life = safeGet(output, "Life"),
     energyShield = safeGet(output, "EnergyShield"),
+    armour = safeGet(output, "Armour"),
+    evasion = safeGet(output, "Evasion"),
+    blockChance = safeGet(output, "BlockChance"),
 
     -- Resistances
     fireRes = safeGet(output, "FireResist"),

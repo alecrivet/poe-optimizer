@@ -3,6 +3,9 @@ PoB Calculator - Python wrapper for Path of Building's calculation engine.
 
 This module provides a Python interface to Path of Building's headless mode,
 allowing us to evaluate builds and get accurate DPS, EHP, and other statistics.
+
+Note: Primary method now uses pre-calculated stats from XML (more reliable),
+with Lua calculation as fallback.
 """
 
 import json
@@ -12,6 +15,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Dict, Optional
+
+from .xml_parser import get_build_summary, parse_pob_stats
 
 logger = logging.getLogger(__name__)
 
@@ -119,23 +124,65 @@ class PoBCalculator:
                 f"Lua command '{self.lua_command}' timed out when checking version."
             )
 
-    def evaluate_build(self, build_xml: str, timeout: int = 30) -> Dict:
+    def evaluate_build(self, build_xml: str, timeout: int = 30, use_xml_stats: bool = True) -> Dict:
         """
         Evaluate a PoB build and return statistics.
 
+        This method first attempts to extract pre-calculated stats from the XML
+        (faster and more reliable), falling back to Lua calculation if needed.
+
         Args:
             build_xml: PoB build XML content
-            timeout: Maximum time in seconds to wait for evaluation (default: 30)
+            timeout: Maximum time in seconds to wait for Lua evaluation (default: 30)
+            use_xml_stats: If True, prefer pre-calculated XML stats (default: True)
 
         Returns:
             Dict containing build statistics:
                 - totalDPS: Total DPS of main skill
-                - fullDPS: Combined DPS from all skills
+                - combinedDPS: Combined DPS (most accurate for real builds)
+                - fullDPS: Full DPS from all skills
                 - totalEHP: Effective Hit Pool
                 - life: Maximum life
                 - energyShield: Maximum energy shield
                 - fireRes, coldRes, lightningRes, chaosRes: Resistances
                 - strength, dexterity, intelligence: Attributes
+                - and many more stats...
+
+        Raises:
+            PoBCalculatorError: If evaluation fails
+        """
+        # Strategy 1: Try to get pre-calculated stats from XML
+        if use_xml_stats:
+            try:
+                stats = get_build_summary(build_xml)
+                # Check if we got meaningful stats
+                if stats.get('combinedDPS', 0) > 0 or stats.get('life', 0) > 0:
+                    logger.debug(f"Using pre-calculated XML stats. Combined DPS: {stats.get('combinedDPS', 0):,.0f}, "
+                                f"Life: {stats.get('life', 0):,.0f}")
+                    return stats
+                else:
+                    logger.debug("XML stats empty or zero, falling back to Lua calculation")
+            except Exception as e:
+                logger.warning(f"Failed to parse XML stats, falling back to Lua: {e}")
+
+        # Strategy 2: Fall back to Lua calculation (for builds without pre-calculated stats)
+        logger.debug("Using Lua calculation engine")
+        return self._evaluate_with_lua(build_xml, timeout)
+
+    def _evaluate_with_lua(self, build_xml: str, timeout: int = 30) -> Dict:
+        """
+        Evaluate build using PoB's Lua calculation engine.
+
+        This is the fallback method when pre-calculated XML stats aren't available.
+        Note: HeadlessWrapper has limitations and may not accurately calculate
+        complex builds with multiple skills.
+
+        Args:
+            build_xml: PoB build XML content
+            timeout: Maximum time in seconds to wait for evaluation
+
+        Returns:
+            Dict containing calculated statistics
 
         Raises:
             PoBCalculatorError: If evaluation fails
@@ -204,7 +251,7 @@ class PoBCalculator:
 
             # Extract and return stats
             stats = output.get('stats', {})
-            logger.debug(f"Evaluation successful. DPS: {stats.get('fullDPS', 0)}, "
+            logger.debug(f"Lua evaluation successful. DPS: {stats.get('fullDPS', 0)}, "
                         f"Life: {stats.get('life', 0)}")
 
             return stats
