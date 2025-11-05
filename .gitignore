@@ -59,6 +59,7 @@ htmlcov/
 benchmarks/
 profile_data/
 cache/
+examples/outputs/
 
 # Temporary files
 *.tmp
