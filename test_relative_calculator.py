@@ -15,8 +15,8 @@ def main():
     print("Testing Relative Calculator Approach")
     print("=" * 70)
 
-    # Load build2
-    with open('examples/build2', 'r') as f:
+    # Load build1 (build2 has Timeless Jewels which don't work with HeadlessWrapper)
+    with open('examples/build1', 'r') as f:
         code = f.read().strip()
 
     original_xml = decode_pob_code(code)

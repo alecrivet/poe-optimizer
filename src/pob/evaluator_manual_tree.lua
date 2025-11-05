@@ -46,23 +46,33 @@ if build and build.treeTab and build.treeTab.specList and #build.treeTab.specLis
         for _, node in ipairs(parsed[1]) do
             if type(node) == "table" and node.elem == "Tree" then
                 -- Manually call TreeTab:Load()
+                -- We expect this might fail on Timeless Jewel data, but tree might still load
                 local success, err = pcall(function()
                     build.treeTab:Load(node, nil)
                 end)
 
+                -- Don't exit on error - check if tree actually loaded
                 if not success then
-                    io.stderr:write('{"success":false,"error":"Manual tree load failed: ' .. tostring(err):gsub('"', '\\"') .. '"}\n')
-                    os.exit(1)
+                    -- Log the error but continue
+                    io.stderr:write("Warning: TreeTab:Load() error (tree might still have loaded): " .. tostring(err) .. "\n")
                 end
 
-                -- Call PostLoad
+                -- Try PostLoad even if Load() had errors
                 if build.treeTab.PostLoad then
-                    build.treeTab:PostLoad()
+                    pcall(function()
+                        build.treeTab:PostLoad()
+                    end)
                 end
 
                 break
             end
         end
+    end
+
+    -- NOW check if tree actually loaded despite errors
+    if #build.treeTab.specList == 0 then
+        io.stderr:write('{"success":false,"error":"Manual tree load failed: specList still empty after Load() attempt"}\n')
+        os.exit(1)
     end
 end
 

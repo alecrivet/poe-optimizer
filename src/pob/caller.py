@@ -66,7 +66,8 @@ class PoBCalculator:
         self.lua_command = lua_command
 
         # Path to our Lua evaluator script
-        self.evaluator_script = Path(__file__).parent / "evaluator.lua"
+        # Use manual tree loading evaluator (workaround for HeadlessWrapper not calling TreeTab:Load())
+        self.evaluator_script = Path(__file__).parent / "evaluator_manual_tree.lua"
 
         # Validate installation
         self._validate_installation()
