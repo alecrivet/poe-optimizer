@@ -17,7 +17,7 @@ Each node has:
 - Position (x, y coordinates)
 """
 
-import json
+import re
 import logging
 from pathlib import Path
 from typing import Dict, List, Set, Optional
@@ -223,10 +223,8 @@ class TreeParser:
 
         logger.info(f"Loading passive tree version {tree_version}...")
 
-        # TODO: Once PathOfBuilding submodule is loaded, parse actual tree data
-        # For now, return an empty graph as a placeholder
-
-        tree_file = self.pob_path / "Data" / tree_version / "tree.json"
+        # Path to tree data in PathOfBuilding submodule
+        tree_file = self.pob_path / "src" / "TreeData" / tree_version / "tree.lua"
 
         if not tree_file.exists():
             logger.warning(f"Tree file not found: {tree_file}")
@@ -248,22 +246,159 @@ class TreeParser:
 
     def _parse_tree_file(self, tree_file: Path) -> PassiveTreeGraph:
         """
-        Parse tree JSON file into graph structure.
+        Parse tree Lua file into graph structure.
 
-        PoB tree format (from PathOfBuilding/Data/):
-        - nodes: Dict of node_id -> node_data
-        - groups: Visual groupings
-        - classes: Starting positions
+        PoB tree format (from PathOfBuilding/src/TreeData/):
+        - Lua table format, not JSON
+        - Nodes around line 17000+
+        - Format: [nodeId]= { ["skill"]=nodeId, ["name"]="...", ["out"]={...}, ["in"]={...} }
         """
         graph = PassiveTreeGraph()
 
-        with open(tree_file, 'r', encoding='utf-8') as f:
-            tree_data = json.load(f)
+        logger.info(f"Parsing tree file: {tree_file}")
 
-        # TODO: Implement actual parsing logic
-        # This will parse PoB's tree format and build PassiveNode objects
+        with open(tree_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        logger.info(f"File loaded: {len(content)} bytes")
+
+        # Find the nodes section - starts around line 17000
+        # Look for pattern: [nodeId]= { ... }
+        # Split by node definitions
+        node_blocks = re.split(r'\[(\d+)\]\s*=\s*\{', content)
+
+        logger.info(f"Split into {len(node_blocks) // 2} potential node blocks")
+
+        nodes_parsed = 0
+
+        # Process node blocks (skip first element which is before any nodes)
+        for i in range(1, len(node_blocks), 2):
+            node_id_str = node_blocks[i]
+            node_content = node_blocks[i + 1] if i + 1 < len(node_blocks) else ""
+
+            # Skip if not a skill node (check for "skill" field)
+            if '"skill"' not in node_content and '["skill"]' not in node_content:
+                continue
+
+            try:
+                node_id = int(node_id_str)
+
+                # Parse node properties
+                node_data = self._parse_node_data(node_id, node_content)
+
+                if node_data:
+                    graph.add_node(node_data)
+                    nodes_parsed += 1
+
+                    if nodes_parsed % 100 == 0:
+                        logger.debug(f"Parsed {nodes_parsed} nodes...")
+
+            except (ValueError, Exception) as e:
+                logger.debug(f"Skipped block {node_id_str}: {e}")
+                continue
+
+        logger.info(f"Successfully parsed {nodes_parsed} nodes")
 
         return graph
+
+    def _parse_node_data(self, node_id: int, node_content: str) -> Optional[PassiveNode]:
+        """
+        Parse a single node's data from its Lua content.
+
+        Args:
+            node_id: The node ID
+            node_content: The Lua content for this node
+
+        Returns:
+            PassiveNode or None if parsing fails
+        """
+        # Extract name
+        name_match = re.search(r'\["name"\]\s*=\s*"([^"]+)"', node_content)
+        name = name_match.group(1) if name_match else f"Node_{node_id}"
+
+        # Extract stats
+        stats = []
+        stats_match = re.search(
+            r'\["stats"\]\s*=\s*\{([^}]*)\}',
+            node_content
+        )
+        if stats_match:
+            stats_block = stats_match.group(1)
+            # Find all quoted strings in stats block
+            stats = re.findall(r'"([^"]+)"', stats_block)
+
+        # Determine node type
+        node_type = 'normal'
+        is_ascendancy = False
+        ascendancy_name = None
+
+        if '["isMastery"]' in node_content and 'true' in node_content:
+            node_type = 'mastery'
+        elif '["isKeystone"]' in node_content and 'true' in node_content:
+            node_type = 'keystone'
+        elif '["isNotable"]' in node_content and 'true' in node_content:
+            node_type = 'notable'
+        elif '["isJewelSocket"]' in node_content and 'true' in node_content:
+            node_type = 'jewel'
+        elif '["isAscendancyStart"]' in node_content and 'true' in node_content:
+            node_type = 'ascendancy_start'
+
+        # Check if ascendancy node
+        if '["ascendancyName"]' in node_content:
+            is_ascendancy = True
+            asc_match = re.search(r'\["ascendancyName"\]\s*=\s*"([^"]+)"', node_content)
+            if asc_match:
+                ascendancy_name = asc_match.group(1)
+
+        # Parse connections (out and in)
+        connections = set()
+
+        # Parse "out" connections
+        out_match = re.search(
+            r'\["out"\]\s*=\s*\{([^}]*)\}',
+            node_content
+        )
+        if out_match:
+            out_block = out_match.group(1)
+            # Find all quoted strings (node IDs)
+            out_ids = re.findall(r'"(\d+)"', out_block)
+            connections.update(int(nid) for nid in out_ids)
+
+        # Parse "in" connections
+        in_match = re.search(
+            r'\["in"\]\s*=\s*\{([^}]*)\}',
+            node_content
+        )
+        if in_match:
+            in_block = in_match.group(1)
+            in_ids = re.findall(r'"(\d+)"', in_block)
+            connections.update(int(nid) for nid in in_ids)
+
+        # Parse position (x, y) if available - not critical
+        x = 0.0
+        y = 0.0
+        # x_match = re.search(r'\["x"\]\s*=\s*([-\d.]+)', node_content)
+        # y_match = re.search(r'\["y"\]\s*=\s*([-\d.]+)', node_content)
+        # if x_match:
+        #     x = float(x_match.group(1))
+        # if y_match:
+        #     y = float(y_match.group(1))
+
+        # Check if it's a mastery (handled differently)
+        is_mastery = node_type == 'mastery'
+
+        return PassiveNode(
+            node_id=node_id,
+            name=name,
+            stats=stats,
+            node_type=node_type,
+            connections=list(connections),
+            x=x,
+            y=y,
+            is_ascendancy=is_ascendancy,
+            ascendancy_name=ascendancy_name,
+            is_mastery=is_mastery
+        )
 
 
 # Singleton instance for easy access
