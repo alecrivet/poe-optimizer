@@ -11,6 +11,12 @@ Algorithm:
 4. Pick the best improvement
 5. Apply it and repeat
 6. Stop when no improvements found or iteration limit reached
+
+Features:
+- Node removal: Try removing allocated nodes
+- Node addition: Try adding adjacent unallocated nodes
+- Mastery optimization: Select optimal mastery effects for each tree
+- Budget constraints: Stay within point limits
 """
 
 import logging
@@ -25,6 +31,7 @@ from ..pob.mastery_optimizer import (
     MasteryOptimizer,
     MasteryDatabase,
 )
+from ..pob.tree_parser import load_passive_tree, PassiveTreeGraph
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +79,7 @@ class GreedyTreeOptimizer:
         min_improvement: float = 0.1,  # Stop if improvement < 0.1%
         max_points_change: int = 5,  # Maximum points to add/remove
         optimize_masteries: bool = True,  # Enable mastery optimization
+        enable_node_addition: bool = True,  # Enable adding nodes to tree
     ):
         """
         Initialize the optimizer.
@@ -81,11 +89,13 @@ class GreedyTreeOptimizer:
             min_improvement: Minimum improvement percentage to continue
             max_points_change: Maximum point budget change (positive or negative)
             optimize_masteries: If True, optimize mastery effect selections
+            enable_node_addition: If True, try adding nodes (requires tree graph)
         """
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement
         self.max_points_change = max_points_change
         self.optimize_masteries = optimize_masteries
+        self.enable_node_addition = enable_node_addition
         self.calculator = RelativeCalculator()
 
         # Load mastery database if optimization enabled
@@ -98,10 +108,18 @@ class GreedyTreeOptimizer:
             self.mastery_db = None
             self.mastery_optimizer = None
 
+        # Load passive tree graph for node addition
+        if self.enable_node_addition:
+            logger.info("Loading passive tree graph...")
+            self.tree_graph = load_passive_tree()
+            logger.info(f"Loaded {self.tree_graph.count_nodes()} nodes from passive tree")
+        else:
+            self.tree_graph = None
+
         logger.info(
             f"Initialized GreedyTreeOptimizer (max_iterations={max_iterations}, "
             f"min_improvement={min_improvement}%, max_points_change={max_points_change}, "
-            f"optimize_masteries={optimize_masteries})"
+            f"optimize_masteries={optimize_masteries}, enable_node_addition={enable_node_addition})"
         )
 
     def optimize(
@@ -286,8 +304,22 @@ class GreedyTreeOptimizer:
         """
         Generate candidate modifications (add/remove single nodes).
 
-        For now: Simple approach - try removing each allocated node.
-        Future: Try adding nodes, multi-node swaps, etc.
+        Tries:
+        1. Optimizing mastery selections (no node changes)
+        2. Removing each allocated node (up to 20)
+        3. Adding each adjacent unallocated node (up to 20)
+
+        Each candidate has its masteries optimized for the objective.
+
+        Args:
+            current_xml: Current build XML
+            allocated_nodes: Set of currently allocated node IDs
+            original_points: Original point count
+            allow_point_increase: If False, can only reallocate existing points
+            objective: Optimization objective
+
+        Returns:
+            Dict mapping candidate name to modified XML
         """
         candidates = {}
 
@@ -330,8 +362,51 @@ class GreedyTreeOptimizer:
                 except Exception as e:
                     logger.debug(f"Failed to remove node {node_id}: {e}")
 
-        # TODO: Try adding nodes (requires knowing which nodes are available)
-        # For now, we only support removal-based optimization
+        # Try adding nodes (if enabled and tree graph loaded)
+        if self.enable_node_addition and self.tree_graph:
+            # Find unallocated nodes adjacent to current tree
+            unallocated_neighbors = self.tree_graph.find_unallocated_neighbors(
+                allocated_nodes
+            )
+
+            # Limit to first 20 neighbors for speed
+            neighbors_to_try = list(unallocated_neighbors)[:20]
+
+            logger.debug(
+                f"Found {len(unallocated_neighbors)} unallocated neighbors, "
+                f"trying {len(neighbors_to_try)}"
+            )
+
+            for node_id in neighbors_to_try:
+                # Check if we can add (stay within budget)
+                if not allow_point_increase and points_below_max <= 0:
+                    break  # Can't add more points
+
+                node = self.tree_graph.get_node(node_id)
+                if not node:
+                    continue
+
+                # Skip mastery nodes (they're allocated automatically with their parent)
+                if node.is_mastery:
+                    continue
+
+                candidate_name = f"Add node {node_id} ({node.name})"
+
+                try:
+                    modified_xml = modify_passive_tree_nodes(
+                        current_xml,
+                        nodes_to_add=[node_id]
+                    )
+
+                    # Optimize mastery selections for this candidate
+                    modified_xml = self._optimize_masteries_for_tree(
+                        modified_xml,
+                        objective
+                    )
+
+                    candidates[candidate_name] = modified_xml
+                except Exception as e:
+                    logger.debug(f"Failed to add node {node_id}: {e}")
 
         return candidates
 
