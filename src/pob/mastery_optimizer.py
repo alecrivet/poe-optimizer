@@ -213,8 +213,8 @@ class MasteryOptimizer:
             score = self._score_effect(effect, objective)
             scored_effects.append((score, effect))
 
-        # Sort by score (descending)
-        scored_effects.sort(reverse=True)
+        # Sort by score (descending), using only the score for comparison
+        scored_effects.sort(key=lambda x: x[0], reverse=True)
 
         best_score, best_effect = scored_effects[0]
 

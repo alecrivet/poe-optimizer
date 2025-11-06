@@ -20,6 +20,11 @@ from dataclasses import dataclass
 from ..pob.codec import encode_pob_code, decode_pob_code
 from ..pob.modifier import modify_passive_tree_nodes, get_passive_tree_summary
 from ..pob.relative_calculator import RelativeCalculator, RelativeEvaluation
+from ..pob.mastery_optimizer import (
+    get_mastery_database,
+    MasteryOptimizer,
+    MasteryDatabase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +71,7 @@ class GreedyTreeOptimizer:
         max_iterations: int = 100,
         min_improvement: float = 0.1,  # Stop if improvement < 0.1%
         max_points_change: int = 5,  # Maximum points to add/remove
+        optimize_masteries: bool = True,  # Enable mastery optimization
     ):
         """
         Initialize the optimizer.
@@ -74,15 +80,28 @@ class GreedyTreeOptimizer:
             max_iterations: Maximum optimization iterations
             min_improvement: Minimum improvement percentage to continue
             max_points_change: Maximum point budget change (positive or negative)
+            optimize_masteries: If True, optimize mastery effect selections
         """
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement
         self.max_points_change = max_points_change
+        self.optimize_masteries = optimize_masteries
         self.calculator = RelativeCalculator()
+
+        # Load mastery database if optimization enabled
+        if self.optimize_masteries:
+            logger.info("Loading mastery database...")
+            self.mastery_db = get_mastery_database()
+            self.mastery_optimizer = MasteryOptimizer(self.mastery_db)
+            logger.info(f"Loaded {len(self.mastery_db.masteries)} mastery nodes")
+        else:
+            self.mastery_db = None
+            self.mastery_optimizer = None
 
         logger.info(
             f"Initialized GreedyTreeOptimizer (max_iterations={max_iterations}, "
-            f"min_improvement={min_improvement}%, max_points_change={max_points_change})"
+            f"min_improvement={min_improvement}%, max_points_change={max_points_change}, "
+            f"optimize_masteries={optimize_masteries})"
         )
 
     def optimize(
@@ -127,7 +146,8 @@ class GreedyTreeOptimizer:
                 current_xml,
                 allocated_nodes,
                 original_points,
-                allow_point_increase
+                allow_point_increase,
+                objective
             )
 
             if not candidates:
@@ -204,12 +224,64 @@ class GreedyTreeOptimizer:
             improvement_history=improvement_history,
         )
 
+    def _optimize_masteries_for_tree(
+        self,
+        xml: str,
+        objective: str
+    ) -> str:
+        """
+        Optimize mastery effect selections for a given tree.
+
+        Args:
+            xml: Build XML with tree modifications
+            objective: Optimization objective
+
+        Returns:
+            XML with optimized mastery selections
+        """
+        if not self.optimize_masteries or not self.mastery_optimizer:
+            return xml
+
+        # Get current tree state
+        summary = get_passive_tree_summary(xml)
+        allocated_nodes = summary['allocated_nodes']
+        current_masteries = summary['mastery_effects']
+
+        # Select optimal mastery effects
+        optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
+            allocated_nodes=allocated_nodes,
+            current_mastery_effects=current_masteries,
+            objective=objective,
+            calculator=None  # Could pass self.calculator for evaluation
+        )
+
+        # If masteries changed, apply them
+        if optimal_masteries != current_masteries:
+            changed_count = sum(
+                1 for node_id in optimal_masteries
+                if optimal_masteries.get(node_id) != current_masteries.get(node_id)
+            )
+
+            if changed_count > 0:
+                logger.debug(f"Optimized {changed_count} mastery selections")
+
+                # Apply mastery changes
+                xml = modify_passive_tree_nodes(
+                    xml,
+                    nodes_to_add=[],
+                    nodes_to_remove=[],
+                    mastery_effects_to_add=optimal_masteries
+                )
+
+        return xml
+
     def _generate_candidates(
         self,
         current_xml: str,
         allocated_nodes: set,
         original_points: int,
         allow_point_increase: bool,
+        objective: str,
     ) -> Dict[str, str]:
         """
         Generate candidate modifications (add/remove single nodes).
@@ -223,6 +295,19 @@ class GreedyTreeOptimizer:
         points_below_max = original_points + self.max_points_change - current_points
         points_above_min = current_points - (original_points - self.max_points_change)
 
+        # Try mastery-only optimization (no node changes)
+        if self.optimize_masteries:
+            try:
+                mastery_optimized = self._optimize_masteries_for_tree(
+                    current_xml,
+                    objective
+                )
+                # Only add if it's different from current
+                if mastery_optimized != current_xml:
+                    candidates["Optimize mastery selections"] = mastery_optimized
+            except Exception as e:
+                logger.debug(f"Failed to optimize masteries: {e}")
+
         # Try removing each allocated node (one at a time)
         for node_id in list(allocated_nodes)[:20]:  # Limit to first 20 for speed
             candidate_name = f"Remove node {node_id}"
@@ -234,6 +319,13 @@ class GreedyTreeOptimizer:
                         current_xml,
                         nodes_to_remove=[node_id]
                     )
+
+                    # Optimize mastery selections for this candidate
+                    modified_xml = self._optimize_masteries_for_tree(
+                        modified_xml,
+                        objective
+                    )
+
                     candidates[candidate_name] = modified_xml
                 except Exception as e:
                     logger.debug(f"Failed to remove node {node_id}: {e}")
