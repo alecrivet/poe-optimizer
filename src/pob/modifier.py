@@ -26,7 +26,8 @@ class BuildModificationError(Exception):
 def modify_passive_tree_nodes(
     xml: str,
     nodes_to_add: Optional[List[int]] = None,
-    nodes_to_remove: Optional[List[int]] = None
+    nodes_to_remove: Optional[List[int]] = None,
+    mastery_effects_to_add: Optional[Dict[int, int]] = None
 ) -> str:
     """
     Add or remove passive tree nodes from a build.
@@ -35,6 +36,8 @@ def modify_passive_tree_nodes(
         xml: PoB build XML string
         nodes_to_add: List of node IDs to allocate
         nodes_to_remove: List of node IDs to deallocate
+        mastery_effects_to_add: Dict of {mastery_node_id: effect_id} to add
+            If not provided, mastery effects are automatically cleaned up
 
     Returns:
         Modified XML string
@@ -44,6 +47,12 @@ def modify_passive_tree_nodes(
         >>> # Remove node 12345, add nodes 23456 and 34567
         >>> modified = modify_passive_tree_nodes(xml, [23456, 34567], [12345])
         >>> new_code = encode_pob_code(modified)
+
+    Note on Mastery Nodes:
+        Mastery nodes are special nodes that allow selecting one of several effects.
+        When removing a node with a mastery effect, its effect is automatically removed.
+        When adding a mastery node, you must specify the effect in mastery_effects_to_add,
+        otherwise NO effect will be selected (optimizer should handle this separately).
     """
     try:
         root = ET.fromstring(xml)
@@ -52,6 +61,7 @@ def modify_passive_tree_nodes(
 
     nodes_to_add = set(nodes_to_add or [])
     nodes_to_remove = set(nodes_to_remove or [])
+    mastery_effects_to_add = mastery_effects_to_add or {}
 
     # Find the Tree element
     tree_elem = root.find(".//Tree")
@@ -73,17 +83,43 @@ def modify_passive_tree_nodes(
     else:
         current_nodes = set()
 
+    # Parse current mastery effects
+    # Format: "{nodeId,effectId},{nodeId,effectId},..."
+    mastery_effects_str = spec_elem.get("masteryEffects", "")
+    mastery_effects = _parse_mastery_effects(mastery_effects_str)
+
     logger.debug(f"Current nodes: {len(current_nodes)}")
+    logger.debug(f"Current mastery effects: {len(mastery_effects)}")
     logger.debug(f"Adding: {nodes_to_add}")
     logger.debug(f"Removing: {nodes_to_remove}")
 
-    # Apply modifications
+    # Apply node modifications
     current_nodes = (current_nodes | nodes_to_add) - nodes_to_remove
+
+    # Handle mastery effects:
+    # 1. Remove mastery effects for removed nodes
+    for removed_node in nodes_to_remove:
+        if removed_node in mastery_effects:
+            logger.debug(f"Removing mastery effect for node {removed_node}")
+            del mastery_effects[removed_node]
+
+    # 2. Add new mastery effects
+    mastery_effects.update(mastery_effects_to_add)
+
+    # 3. Clean up orphaned mastery effects (mastery node not allocated)
+    orphaned = set(mastery_effects.keys()) - current_nodes
+    for orphaned_node in orphaned:
+        logger.warning(f"Removing orphaned mastery effect for unallocated node {orphaned_node}")
+        del mastery_effects[orphaned_node]
 
     # Update the XML
     spec_elem.set("nodes", ",".join(str(n) for n in sorted(current_nodes)))
+    spec_elem.set("masteryEffects", _format_mastery_effects(mastery_effects))
 
-    logger.info(f"Modified passive tree: {len(current_nodes)} nodes allocated")
+    logger.info(
+        f"Modified passive tree: {len(current_nodes)} nodes allocated, "
+        f"{len(mastery_effects)} mastery effects"
+    )
 
     return ET.tostring(root, encoding="unicode")
 
@@ -204,6 +240,7 @@ def get_passive_tree_summary(xml: str) -> Dict:
         Dict with tree info: {
             'total_nodes': int,
             'allocated_nodes': Set[int],
+            'mastery_effects': Dict[int, int],  # node_id -> effect_id
             'class_name': str,
             'ascendancy_name': str,
         }
@@ -223,6 +260,7 @@ def get_passive_tree_summary(xml: str) -> Dict:
         return {
             'total_nodes': 0,
             'allocated_nodes': set(),
+            'mastery_effects': {},
             'class_name': class_name,
             'ascendancy_name': ascendancy_name,
         }
@@ -232,6 +270,7 @@ def get_passive_tree_summary(xml: str) -> Dict:
         return {
             'total_nodes': 0,
             'allocated_nodes': set(),
+            'mastery_effects': {},
             'class_name': class_name,
             'ascendancy_name': ascendancy_name,
         }
@@ -239,9 +278,13 @@ def get_passive_tree_summary(xml: str) -> Dict:
     nodes_str = spec_elem.get("nodes", "")
     allocated = set(int(n) for n in nodes_str.split(",") if n.strip())
 
+    mastery_effects_str = spec_elem.get("masteryEffects", "")
+    mastery_effects = _parse_mastery_effects(mastery_effects_str)
+
     return {
         'total_nodes': len(allocated),
         'allocated_nodes': allocated,
+        'mastery_effects': mastery_effects,
         'class_name': class_name,
         'ascendancy_name': ascendancy_name,
     }
@@ -291,3 +334,84 @@ def get_skill_groups_summary(xml: str) -> List[Dict]:
         })
 
     return result
+
+
+def _parse_mastery_effects(mastery_effects_str: str) -> Dict[int, int]:
+    """
+    Parse mastery effects string into dict.
+
+    Format: "{nodeId,effectId},{nodeId,effectId},..."
+    Example: "{53188,64875},{27872,29161}"
+
+    Args:
+        mastery_effects_str: Mastery effects string from XML
+
+    Returns:
+        Dict mapping node_id -> effect_id
+    """
+    if not mastery_effects_str or not mastery_effects_str.strip():
+        return {}
+
+    result = {}
+
+    # Remove outer braces and split by },{
+    pairs_str = mastery_effects_str.strip()
+    if not pairs_str:
+        return result
+
+    # Split into individual {nodeId,effectId} pairs
+    pairs = []
+    current_pair = ""
+    brace_count = 0
+
+    for char in pairs_str:
+        if char == '{':
+            brace_count += 1
+            if brace_count == 1:
+                current_pair = ""
+                continue
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                if current_pair:
+                    pairs.append(current_pair)
+                current_pair = ""
+                continue
+
+        if brace_count > 0:
+            current_pair += char
+
+    # Parse each pair
+    for pair in pairs:
+        parts = pair.split(',')
+        if len(parts) == 2:
+            try:
+                node_id = int(parts[0].strip())
+                effect_id = int(parts[1].strip())
+                result[node_id] = effect_id
+            except ValueError:
+                logger.warning(f"Failed to parse mastery effect pair: {pair}")
+
+    return result
+
+
+def _format_mastery_effects(mastery_effects: Dict[int, int]) -> str:
+    """
+    Format mastery effects dict into XML string.
+
+    Args:
+        mastery_effects: Dict mapping node_id -> effect_id
+
+    Returns:
+        Formatted string: "{nodeId,effectId},{nodeId,effectId},..."
+    """
+    if not mastery_effects:
+        return ""
+
+    # Sort by node ID for consistency
+    sorted_effects = sorted(mastery_effects.items())
+
+    # Format as {nodeId,effectId} pairs
+    pairs = [f"{{{node_id},{effect_id}}}" for node_id, effect_id in sorted_effects]
+
+    return ",".join(pairs)
