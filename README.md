@@ -23,17 +23,14 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the optimizer on example build
+# Quick test of optimizer
 python tests/test_optimizer.py
 
-# Analyze passive tree nodes
-python scripts/analysis/analyze_tree.py
-
-# Test relative calculator
-python tests/test_relative_calculator.py
+# Try integration examples (recommended)
+python examples/integration/example_1_quick_optimization.py
 ```
 
-**Note:** Core optimizer is working! Currently optimizes by removing inefficient passive tree nodes. Place your PoB code in `examples/build1` to optimize your own builds.
+**Note:** All core features are implemented! The optimizer can add/remove nodes, optimize masteries, handle multiple objectives, and visualize results. See `examples/integration/` for complete workflows.
 
 ## 📋 Implementation Progress
 
@@ -62,7 +59,7 @@ This project is being built in 4 phases:
   - Mastery optimization (213 mastery nodes)
   - NSGA-II algorithm components
 
-**Current Status:** ~95% Complete (All 4 phases finished!)
+**Current Status:** Phase 4 Complete! All core features implemented and tested.
 
 ## 🏗️ Architecture
 
@@ -80,10 +77,16 @@ poe-optimizer/
 │   │   ├── mastery_optimizer.py # Mastery selection (213 masteries)
 │   │   ├── evaluator_manual_tree.lua # Manual tree loading workaround
 │   │   └── evaluator.lua        # Original evaluator
-│   └── optimizer/               # Optimization algorithms ✅
-│       ├── tree_optimizer.py    # Greedy tree optimizer
-│       ├── genetic_optimizer.py # Genetic algorithm (evolution-based)
-│       └── multi_objective_optimizer.py # Pareto frontier optimization
+│   ├── optimizer/               # Optimization algorithms ✅
+│   │   ├── tree_optimizer.py    # Greedy tree optimizer
+│   │   ├── genetic_optimizer.py # Genetic algorithm (evolution-based)
+│   │   ├── multi_objective_optimizer.py # Pareto frontier optimization
+│   │   ├── extended_objectives.py # 7 objectives (DPS/Life/EHP/Mana/ES/Block/Clear)
+│   │   └── constraints.py       # Point budget, attributes, jewel sockets
+│   └── visualization/           # Visualization tools ✅
+│       ├── frontier_plot.py     # Pareto frontier plots (3D/2D)
+│       ├── evolution_plot.py    # Evolution progress tracking
+│       └── tree_diff.py          # Tree difference visualization
 ├── tests/                       # Test suite ✅
 │   ├── test_codec.py            # Codec tests
 │   ├── test_modifier.py         # Modifier tests
@@ -101,10 +104,16 @@ poe-optimizer/
 │   └── demos/                   # Demo scripts
 │       ├── demo_codec.py
 │       └── demo_pob_integration.py
-├── examples/                    # Example builds
+├── examples/                    # Example builds and workflows
 │   ├── build1                   # Example PoB code
 │   ├── build1.xml               # Decoded XML
-│   └── outputs/                 # Generated outputs
+│   ├── outputs/                 # Generated outputs
+│   └── integration/             # Integration workflow examples ✅
+│       ├── example_1_quick_optimization.py      # 2-min greedy workflow
+│       ├── example_2_genetic_algorithm.py       # Evolution-based optimization
+│       ├── example_3_multi_objective.py         # Trade-off exploration
+│       ├── example_4_advanced_features.py       # 7 objectives + constraints
+│       └── example_5_complete_workflow.py       # Full pipeline
 ├── notes/                       # Development notes & session logs
 └── docs/                        # Documentation
 ```
@@ -120,16 +129,26 @@ poe-optimizer/
 
 ### Current Implementation
 
-The optimizer currently:
-- Analyzes each passive tree node's impact on DPS/Life/EHP
-- Identifies inefficient nodes that can be reallocated
-- Iteratively removes underperforming nodes
-- Uses ~5-10% accuracy via relative calculations (fast but approximate)
+The optimizer offers two approaches:
 
-**Known Limitations:**
-- Only removes nodes (adding nodes requires tree graph data)
-- Timeless Jewels not supported
-- Relative calculations have 5-10% accuracy error (acceptable for ranking)
+**Greedy Optimizer (Fast - 2-5 minutes)**
+- Analyzes each node's impact on objectives
+- Iteratively improves the build via local search
+- Adds and removes nodes intelligently
+- Best for quick improvements
+
+**Genetic Algorithm (Thorough - 10-20 minutes)**
+- Population-based evolution (30 individuals, 50 generations)
+- Explores global optimization space
+- Discovers non-obvious node combinations
+- Best for maximum optimization
+
+Both use relative calculations (~5-10% accuracy) for fast iteration, which is acceptable for ranking and selection.
+
+**Current Limitations:**
+- Timeless Jewels not supported (complex calculation requirements)
+- Cluster Jewels not supported (dynamic tree modification)
+- Items and gems are fixed (future phases will address this)
 
 ## 📚 Documentation
 
@@ -137,7 +156,28 @@ The optimizer currently:
 - **[Session Notes](notes/sessions/)** - Development session logs and progress
 - **[Scripts README](scripts/README.md)** - Documentation for utility scripts
 
-### Quick Start Examples
+### Integration Examples
+
+See `examples/integration/` for complete end-to-end workflows:
+
+```bash
+# Quick 2-minute optimization (greedy algorithm)
+python examples/integration/example_1_quick_optimization.py
+
+# Genetic algorithm with evolution tracking
+python examples/integration/example_2_genetic_algorithm.py
+
+# Multi-objective trade-off exploration
+python examples/integration/example_3_multi_objective.py
+
+# Advanced: 7 objectives + constraints
+python examples/integration/example_4_advanced_features.py
+
+# Complete pipeline: greedy vs genetic comparison
+python examples/integration/example_5_complete_workflow.py
+```
+
+### Development and Testing
 
 ```bash
 # Analyze a build's passive tree nodes
@@ -160,27 +200,32 @@ See `requirements.txt` for Python package dependencies.
 
 ## 🎮 Features
 
-### Implemented ✅
-- ✅ PoB code encoding/decoding
-- ✅ XML parsing and modification
-- ✅ Passive tree node analysis
-- ✅ Relative calculation engine (ratio-based)
-- ✅ Greedy tree optimizer
-- ✅ Multi-objective support (DPS, Life, EHP, balanced)
-- ✅ Node impact analysis tools
+### Core Features ✅
+- ✅ **PoB Integration:** Full encode/decode support for PoB builds
+- ✅ **Passive Tree Parsing:** 3,287 nodes parsed with full connectivity graph
+- ✅ **Mastery Optimization:** 213 mastery nodes with effect selection
+- ✅ **Relative Calculator:** Fast ratio-based stat extrapolation
+- ✅ **Node Addition/Removal:** Intelligent path finding and tree modification
 
-### In Development 🚧
-- 🚧 Node addition capability
-- 🚧 Multi-node operations (swaps, paths)
-- 🚧 Genetic algorithm optimization
+### Optimization Algorithms ✅
+- ✅ **Greedy Optimizer:** Fast local optimization (2-5 minutes)
+- ✅ **Genetic Algorithm:** Evolution-based global optimization (10-20 minutes)
+- ✅ **Multi-Objective:** Pareto frontier exploration (NSGA-II components)
+- ✅ **7 Objectives:** DPS, Life, EHP, Mana, Energy Shield, Block, Clear Speed
+- ✅ **Constraint System:** Point budget, attribute requirements, jewel sockets
 
-### Planned 📋
-- 📋 Pareto frontier (multi-objective)
-- 📋 Item optimization
+### Visualization & Analysis ✅
+- ✅ **Pareto Frontier Plots:** 3D/2D interactive visualizations
+- ✅ **Evolution Tracking:** Fitness progress and convergence analysis
+- ✅ **Tree Diff Viewer:** Visual comparison of builds
+- ✅ **Node Impact Analysis:** Detailed stat contribution reports
+
+### Planned for Future Phases 📋
+- 📋 Item optimization (equipment upgrades)
 - 📋 Gem link optimization
-- 📋 Budget constraints
-- 📋 CLI tool
-- 📋 Web interface
+- 📋 Timeless Jewel support
+- 📋 CLI tool with progress bars
+- 📋 Web interface with live visualization
 
 ## 🤝 Contributing
 
@@ -211,28 +256,32 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🗺️ Roadmap
 
-**v0.1.0 (Current)** - Core optimizer working
-- [x] Phase 1-3 complete (75%)
-- [x] Can optimize basic builds (node removal)
-- [x] Python API functional
-- [ ] Phase 4: Advanced algorithms
+**v0.4.0 (Current)** - Phase 4 Complete ✅
+- [x] Genetic algorithm implementation
+- [x] Node addition capability (3,287 nodes)
+- [x] Multi-objective optimization (Pareto frontier)
+- [x] Extended objectives (7 total metrics)
+- [x] Constraint system (points, attributes, jewels)
+- [x] Visualization suite (plots, diffs, evolution)
+- [x] Integration examples and documentation
 
-**v0.2.0** - Advanced optimization
-- [ ] Genetic algorithm
-- [ ] Node addition capability
-- [ ] Multi-objective optimization (Pareto frontier)
-- [ ] Budget constraints
+**v0.5.0** - Polish & Testing
+- [ ] Comprehensive test suite expansion
+- [ ] Performance benchmarking and optimization
+- [ ] Documentation polish and user guides
+- [ ] Bug fixes and edge case handling
 
-**v0.3.0** - User interface
-- [ ] CLI tool
-- [ ] Progress visualization
-- [ ] Build comparison tools
+**v0.6.0** - User Interface
+- [ ] CLI tool with progress bars
+- [ ] Interactive build comparison
+- [ ] Web frontend (React + FastAPI)
+- [ ] Animated genetic algorithm visualization
 
-**v1.0.0** - Production ready
-- [ ] Comprehensive testing
-- [ ] Performance optimization
-- [ ] Documentation complete
-- [ ] Community feedback integrated
+**v1.0.0** - Production Ready
+- [ ] Item optimization
+- [ ] Gem link optimization
+- [ ] Community feedback integration
+- [ ] Production deployment infrastructure
 
 ## ⚠️ Disclaimer
 
@@ -240,6 +289,6 @@ This is a third-party tool and is not affiliated with Grinding Gear Games. Path 
 
 ---
 
-**Status:** 🚧 Under Development - Phase 3 Complete ✅ | 75% Done | Core Optimizer Working!
+**Status:** ✅ Phase 4 Complete | All Core Features Implemented | Ready for Polish & UI Work
 
 Last Updated: November 2025
