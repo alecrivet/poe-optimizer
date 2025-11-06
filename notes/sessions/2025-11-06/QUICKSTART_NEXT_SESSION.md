@@ -1,8 +1,8 @@
 # Quick Start Guide - Next Session
 
 **Date:** 2025-11-06 (This session completed)
-**Status:** ✅ Mastery Optimization Complete | Phase 4 ~60% Done
-**Next Focus:** Node Addition & Tree Graph Parsing
+**Status:** ✅ Mastery Optimization Complete | ✅ Node Addition Complete | Phase 4 ~75% Done
+**Next Focus:** Genetic Algorithm & Multi-Objective Optimization
 
 ---
 
@@ -12,16 +12,18 @@
 1. **Fixed Critical Mastery Bug** - Optimizer now properly handles mastery nodes
 2. **Built Mastery Database** - 213 masteries, ~700 effects loaded from PoB data
 3. **Intelligent Effect Selection** - Heuristic scoring for optimal mastery choices
-4. **Full Integration** - TreeOptimizer automatically optimizes masteries
+4. **Full Mastery Integration** - TreeOptimizer automatically optimizes masteries
+5. **Passive Tree Graph Parser** - Parsed 3,287 nodes from PathOfBuilding tree data
+6. **Node Addition Capability** - Optimizer can now ADD nodes (135+ candidates per build)
 
 ### 🚧 Phase 4 Status
 - ✅ Mastery Optimization (100% - DONE)
-- ⏭️ Node Addition (0% - NEXT)
-- ⏭️ Tree Graph Parsing (0% - NEXT)
-- ⏭️ Genetic Algorithm (0% - Future)
-- ⏭️ Multi-Objective Pareto (0% - Future)
+- ✅ Node Addition (100% - DONE)
+- ✅ Tree Graph Parsing (100% - DONE)
+- ⏭️ Genetic Algorithm (0% - NEXT)
+- ⏭️ Multi-Objective Pareto (0% - NEXT)
 
-### 📊 Overall Project: ~80% Complete
+### 📊 Overall Project: ~85% Complete
 
 ---
 
@@ -80,6 +82,24 @@ EOF
   2 would change for DPS optimization
 ```
 
+### Node Addition Validation
+
+Test that node addition works:
+
+```bash
+# Test tree graph loading and neighbor detection
+python3 test_node_addition_simple.py
+```
+
+**Expected Output:**
+```
+✓ Loaded 3,287 nodes from passive tree
+✓ Found 135 unallocated neighbors
+✓ Tree graph has full node data (names, stats, types)
+✓ Mastery database can identify mastery nodes
+✓ Ready for optimizer integration
+```
+
 ---
 
 ## 📁 Key Files to Know
@@ -102,19 +122,24 @@ EOF
 
 **Optimizer Integration:**
 - `src/optimizer/tree_optimizer.py`
-  - `GreedyTreeOptimizer.__init__()` - Loads mastery database
+  - `GreedyTreeOptimizer.__init__()` - Loads mastery database AND tree graph
   - `_optimize_masteries_for_tree()` - Per-candidate optimization
-  - `_generate_candidates()` - Tries mastery-only changes
+  - `_generate_candidates()` - Tries mastery changes, node removal, AND node addition
 
-**Phase 4 Foundation:**
-- `src/pob/tree_parser.py` (292 lines - STUB)
+**Tree Graph System:**
+- `src/pob/tree_parser.py` (428 lines - COMPLETE)
   - `PassiveNode` and `PassiveTreeGraph` classes
-  - Foundation for node addition
-  - **TODO:** Implement actual parsing from PoB data
+  - Full Lua parsing from PathOfBuilding tree data
+  - `find_unallocated_neighbors()` - Finds adjacent nodes for addition
+  - `is_path_connected()` - Tree connectivity validation via BFS
+  - `get_shortest_path()` - Path finding between nodes
+  - Parses 3,287 nodes with all properties and connections
 
 ### Test Files
 - `tests/test_mastery_handling.py` - Mastery XML tests
 - `tests/test_mastery_optimizer.py` - Scoring tests
+- `test_node_addition_simple.py` - Node addition validation (no calculator)
+- `test_node_addition.py` - Full optimizer integration test (requires luajit)
 - `tests/test_optimizer_with_masteries.py` - Integration tests
 
 ### Documentation
