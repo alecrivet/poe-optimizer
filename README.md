@@ -23,14 +23,17 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Quick test of optimizer
-python tests/test_optimizer.py
+# Launch Desktop GUI (easiest!)
+python run_gui.py
 
-# Try integration examples (recommended)
+# Or try integration examples
 python examples/integration/example_1_quick_optimization.py
+
+# Or run quick test
+python tests/test_optimizer.py
 ```
 
-**Note:** All core features are implemented! The optimizer can add/remove nodes, optimize masteries, handle multiple objectives, and visualize results. See `examples/integration/` for complete workflows.
+**Note:** All core features are implemented! The optimizer can add/remove nodes, optimize masteries, handle multiple objectives, and visualize results. Use the **Desktop GUI** for the easiest experience, or see `examples/integration/` for programmatic workflows.
 
 ## 📋 Implementation Progress
 
@@ -220,12 +223,21 @@ See `requirements.txt` for Python package dependencies.
 - ✅ **Tree Diff Viewer:** Visual comparison of builds
 - ✅ **Node Impact Analysis:** Detailed stat contribution reports
 
+### Desktop GUI ✅
+- ✅ **PyQt6 Application:** Native desktop app for individual use
+- ✅ **PoB Code I/O:** Paste input, copy optimized output
+- ✅ **Build Viewer:** Display character, stats, gear, gems
+- ✅ **Optimizer Controls:** Configure algorithm, objective, parameters
+- ✅ **Real-time Progress:** Background optimization with live updates
+- ✅ **Results Comparison:** Before/after stats table
+- 🚧 **Tree Visualization:** Passive tree canvas (in progress)
+- 🚧 **Animated GA:** Watch genetic algorithm work (in progress)
+
 ### Planned for Future Phases 📋
 - 📋 Item optimization (equipment upgrades)
 - 📋 Gem link optimization
 - 📋 Timeless Jewel support
 - 📋 CLI tool with progress bars
-- 📋 Web interface with live visualization
 
 ## 🤝 Contributing
 
@@ -265,17 +277,21 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Visualization suite (plots, diffs, evolution)
 - [x] Integration examples and documentation
 
-**v0.5.0** - Polish & Testing
+**v0.5.0 (Current)** - Desktop GUI 🚧
+- [x] PyQt6 desktop application
+- [x] PoB code input/output
+- [x] Build information display
+- [x] Optimizer configuration UI
+- [x] Real-time progress tracking
+- [ ] Passive tree visualization canvas
+- [ ] Animated genetic algorithm visualization
+- [ ] Gear and gem parsing/display
+
+**v0.6.0** - Polish & Testing
 - [ ] Comprehensive test suite expansion
 - [ ] Performance benchmarking and optimization
-- [ ] Documentation polish and user guides
 - [ ] Bug fixes and edge case handling
-
-**v0.6.0** - User Interface
 - [ ] CLI tool with progress bars
-- [ ] Interactive build comparison
-- [ ] Web frontend (React + FastAPI)
-- [ ] Animated genetic algorithm visualization
 
 **v1.0.0** - Production Ready
 - [ ] Item optimization
