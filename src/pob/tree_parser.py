@@ -374,15 +374,19 @@ class TreeParser:
             in_ids = re.findall(r'"(\d+)"', in_block)
             connections.update(int(nid) for nid in in_ids)
 
-        # Parse position (x, y) if available - not critical
+        # Parse position (x, y)
         x = 0.0
         y = 0.0
-        # x_match = re.search(r'\["x"\]\s*=\s*([-\d.]+)', node_content)
-        # y_match = re.search(r'\["y"\]\s*=\s*([-\d.]+)', node_content)
-        # if x_match:
-        #     x = float(x_match.group(1))
-        # if y_match:
-        #     y = float(y_match.group(1))
+        x_match = re.search(r'\["x"\]\s*=\s*([-\d.]+)', node_content)
+        y_match = re.search(r'\["y"\]\s*=\s*([-\d.]+)', node_content)
+        if x_match:
+            x = float(x_match.group(1))
+        if y_match:
+            y = float(y_match.group(1))
+
+        # Filter out ruthless nodes - they have group="Ruthless" or similar
+        if '"Ruthless"' in node_content or '["group"]="Ruthless"' in node_content:
+            return None  # Skip ruthless nodes
 
         # Check if it's a mastery (handled differently)
         is_mastery = node_type == 'mastery'
