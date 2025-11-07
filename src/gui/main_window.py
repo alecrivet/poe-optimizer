@@ -411,7 +411,7 @@ class MainWindow(QMainWindow):
         """Load and decode PoB build"""
         try:
             from src.pob.codec import decode_pob_code
-            from src.pob.xml_parser import parse_pob_xml
+            from src.pob.xml_parser import parse_pob_stats
             from src.pob.modifier import get_passive_tree_summary
 
             pob_code = self.pob_input.toPlainText().strip()
@@ -424,7 +424,7 @@ class MainWindow(QMainWindow):
             self.current_build_xml = decode_pob_code(pob_code)
 
             # Parse build info
-            stats = parse_pob_xml(self.current_build_xml)
+            stats = parse_pob_stats(self.current_build_xml)
             tree_summary = get_passive_tree_summary(self.current_build_xml)
 
             # Display build info
@@ -552,7 +552,7 @@ Ascendancy: {stats.get('AscendClassName', 'None')}
         """Handle optimization completion"""
         try:
             from src.pob.codec import encode_pob_code
-            from src.pob.xml_parser import parse_pob_xml
+            from src.pob.xml_parser import parse_pob_stats
             from src.pob.modifier import get_passive_tree_summary
 
             self.current_result = result
@@ -563,7 +563,7 @@ Ascendancy: {stats.get('AscendClassName', 'None')}
             self.pob_output.setPlainText(optimized_code)
 
             # Parse optimized stats
-            optimized_stats = parse_pob_xml(optimized_xml)
+            optimized_stats = parse_pob_stats(optimized_xml)
             optimized_tree = get_passive_tree_summary(optimized_xml)
 
             # Update results table
