@@ -87,24 +87,37 @@ class TreeCanvas(QWidget):
         self._load_tree_data()
 
     def _load_tree_data(self):
-        """Load passive tree graph and generate node positions"""
+        """Load passive tree graph and use actual PoB positions"""
         try:
             from src.pob.tree_parser import load_passive_tree
 
             logger.info("Loading passive tree data...")
             self.tree_graph = load_passive_tree()
 
-            # Generate node positions (simple radial layout for now)
-            # TODO: Load actual positions from PoB tree data
-            self._generate_node_layout()
+            # Use actual PoB tree positions
+            self._load_actual_positions()
 
-            logger.info(f"Loaded {len(self.tree_graph.nodes)} nodes")
+            logger.info(f"Loaded {len(self.tree_graph.nodes)} nodes with {len(self.node_positions)} positions")
 
         except Exception as e:
             logger.error(f"Failed to load tree data: {e}")
             logger.info("Tree visualization will be unavailable")
             self.tree_graph = None
             self.node_positions = {}
+
+    def _load_actual_positions(self):
+        """Load actual PoB tree positions from loaded nodes"""
+        if not self.tree_graph or not self.tree_graph.nodes:
+            logger.warning("Cannot load positions: tree graph is empty")
+            return
+
+        # Extract x/y positions from loaded nodes
+        for node_id, node in self.tree_graph.nodes.items():
+            # Skip nodes without positions (x=0, y=0 likely means no position data)
+            if node.x != 0.0 or node.y != 0.0:
+                self.node_positions[node_id] = (node.x, node.y)
+
+        logger.info(f"Loaded {len(self.node_positions)} node positions from PoB tree data")
 
     def _generate_node_layout(self):
         """
