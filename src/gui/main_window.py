@@ -352,16 +352,32 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        label = QLabel("Passive Tree Visualization (Coming Soon)")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(label)
+        # Add tree canvas
+        from src.gui.widgets import TreeCanvas
+        self.tree_canvas = TreeCanvas()
+        self.tree_canvas.node_clicked.connect(self.on_node_clicked)
+        layout.addWidget(self.tree_canvas)
 
-        # TODO: Add tree canvas widget
-        # from src.gui.tree_canvas import TreeCanvas
-        # self.tree_canvas = TreeCanvas()
-        # layout.addWidget(self.tree_canvas)
+        # Add controls
+        controls_layout = QHBoxLayout()
+
+        reset_view_btn = QPushButton("Reset View")
+        reset_view_btn.clicked.connect(self.tree_canvas.reset_view)
+        controls_layout.addWidget(reset_view_btn)
+
+        controls_layout.addStretch()
+
+        zoom_label = QLabel("Zoom: Mouse Wheel | Pan: Click & Drag")
+        controls_layout.addWidget(zoom_label)
+
+        layout.addLayout(controls_layout)
 
         return tab
+
+    def on_node_clicked(self, node_id):
+        """Handle node click in tree canvas"""
+        logger.info(f"Node clicked: {node_id}")
+        # TODO: Show node details in a tooltip or panel
 
     def create_evolution_tab(self):
         """Create evolution progress tab"""
@@ -432,6 +448,9 @@ Mana: {stats.get('Mana', 0):,.0f}
 
             # Update results table with original stats
             self.update_results_table_original(stats, tree_summary)
+
+            # Update tree canvas with allocated nodes
+            self.tree_canvas.set_allocated_nodes(set(tree_summary['allocated_nodes']))
 
             # TODO: Display gear and gems
             self.display_build_details(stats)
@@ -558,6 +577,17 @@ Ascendancy: {stats.get('AscendClassName', 'None')}
             self.results_table.setItem(7, 2, QTableWidgetItem(f"{optimized_stats.get('BlockChance', 0):.1f}%"))
             self.results_table.setItem(8, 2, QTableWidgetItem(f"{len(optimized_tree['allocated_nodes'])}"))
             self.results_table.setItem(9, 2, QTableWidgetItem(f"{optimized_stats.get('Level', 0)}"))
+
+            # Update tree canvas with optimization results
+            original_tree = get_passive_tree_summary(self.current_build_xml)
+            original_nodes = set(original_tree['allocated_nodes'])
+            optimized_nodes = set(optimized_tree['allocated_nodes'])
+
+            added_nodes = optimized_nodes - original_nodes
+            removed_nodes = original_nodes - optimized_nodes
+
+            self.tree_canvas.set_allocated_nodes(optimized_nodes)
+            self.tree_canvas.set_tree_diff(added_nodes, removed_nodes)
 
             # Update improvement summary
             if hasattr(result, 'optimized_stats'):
