@@ -499,6 +499,19 @@ Ascendancy: {stats.get('AscendClassName', 'None')}
                 QMessageBox.warning(self, "Error", "Please load a build first")
                 return
 
+            # Check for Timeless Jewels (not supported)
+            if "timeless" in self.current_build_xml.lower():
+                reply = QMessageBox.question(
+                    self,
+                    "Timeless Jewel Detected",
+                    "This build appears to have a Timeless Jewel.\n\n"
+                    "Timeless Jewels are not currently supported and may cause errors.\n\n"
+                    "Continue anyway?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
+
             # Get settings
             is_greedy = "Greedy" in self.algorithm_combo.currentText()
             objective = self.objective_combo.currentText().lower()
