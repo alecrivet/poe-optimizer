@@ -279,12 +279,12 @@ class TreeCanvas(QWidget):
             elif node_id in self.removed_nodes:
                 color = self.colors['node_removed']
             elif node_id in self.allocated_nodes:
-                # Check node type
-                if node_data.get('isKeystone'):
+                # Check node type (PassiveNode uses attributes, not dict)
+                if getattr(node_data, 'isKeystone', False):
                     color = self.colors['node_keystone']
-                elif node_data.get('isNotable'):
+                elif getattr(node_data, 'isNotable', False):
                     color = self.colors['node_notable']
-                elif node_data.get('isMastery'):
+                elif getattr(node_data, 'isMastery', False):
                     color = self.colors['node_mastery']
                 else:
                     color = self.colors['node_allocated']
@@ -293,9 +293,9 @@ class TreeCanvas(QWidget):
 
             # Determine node size
             radius = self.node_radius / self.zoom
-            if node_data.get('isKeystone'):
+            if getattr(node_data, 'isKeystone', False):
                 radius *= 1.5
-            elif node_data.get('isNotable'):
+            elif getattr(node_data, 'isNotable', False):
                 radius *= 1.2
 
             # Draw node
