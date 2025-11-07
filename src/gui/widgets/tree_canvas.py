@@ -101,8 +101,10 @@ class TreeCanvas(QWidget):
             logger.info(f"Loaded {len(self.tree_graph.nodes)} nodes")
 
         except Exception as e:
-            logger.exception("Failed to load tree data")
+            logger.error(f"Failed to load tree data: {e}")
+            logger.info("Tree visualization will be unavailable")
             self.tree_graph = None
+            self.node_positions = {}
 
     def _generate_node_layout(self):
         """
@@ -110,7 +112,8 @@ class TreeCanvas(QWidget):
 
         TODO: Replace with actual PoB tree positions from TreeData.json
         """
-        if not self.tree_graph:
+        if not self.tree_graph or not self.tree_graph.nodes:
+            logger.warning("Cannot generate layout: tree graph is empty")
             return
 
         # Center of the canvas
@@ -120,11 +123,15 @@ class TreeCanvas(QWidget):
         # For now, use a simple circular layout based on node connectivity
         # This is a placeholder - real PoB tree has specific coordinates
 
-        # Find node with most connections (likely tree center)
-        center_node = max(
-            self.tree_graph.nodes.keys(),
-            key=lambda n: len(self.tree_graph.get_neighbors(n))
-        )
+        try:
+            # Find node with most connections (likely tree center)
+            center_node = max(
+                self.tree_graph.nodes.keys(),
+                key=lambda n: len(self.tree_graph.get_neighbors(n))
+            )
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Failed to find center node: {e}")
+            return
 
         # BFS from center to assign layers
         visited = {center_node}
@@ -169,18 +176,21 @@ class TreeCanvas(QWidget):
     def set_allocated_nodes(self, node_ids: Set[int]):
         """Set which nodes are currently allocated"""
         self.allocated_nodes = set(node_ids)
-        self.update()
+        if self.tree_graph:  # Only update if tree is loaded
+            self.update()
 
     def set_tree_diff(self, added: Set[int], removed: Set[int]):
         """Set which nodes were added/removed by optimization"""
         self.added_nodes = set(added)
         self.removed_nodes = set(removed)
-        self.update()
+        if self.tree_graph:  # Only update if tree is loaded
+            self.update()
 
     def highlight_nodes(self, node_ids: Set[int]):
         """Highlight specific nodes (for GA animation)"""
         self.highlighted_nodes = set(node_ids)
-        self.update()
+        if self.tree_graph:  # Only update if tree is loaded
+            self.update()
 
     def start_animation(self):
         """Start animation timer (for GA visualization)"""
@@ -206,9 +216,15 @@ class TreeCanvas(QWidget):
         painter.fillRect(self.rect(), self.colors['background'])
 
         if not self.tree_graph or not self.node_positions:
-            # Show loading message
+            # Show error/loading message
             painter.setPen(QColor(150, 150, 150))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Loading tree data...")
+            if self.tree_graph is None:
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                               "Tree visualization unavailable\n\n"
+                               "Check that PathOfBuilding submodule is initialized:\n"
+                               "git submodule update --init --recursive")
+            else:
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Loading tree data...")
             return
 
         # Apply transformations (zoom and pan)
