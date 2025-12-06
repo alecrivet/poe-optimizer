@@ -149,8 +149,8 @@ The optimizer offers two approaches:
 Both use relative calculations (~5-10% accuracy) for fast iteration, which is acceptable for ranking and selection.
 
 **Current Limitations:**
-- Timeless Jewels not supported (complex calculation requirements)
-- Cluster Jewels not supported (dynamic tree modification)
+- Timeless Jewels - *Implementation in progress (v0.6.0)*
+- Cluster Jewels - *Implementation in progress (v0.6.0)*
 - Items and gems are fixed (future phases will address this)
 
 ## 📚 Documentation
@@ -233,10 +233,14 @@ See `requirements.txt` for Python package dependencies.
 - 🚧 **Tree Visualization:** Passive tree canvas (in progress)
 - 🚧 **Animated GA:** Watch genetic algorithm work (in progress)
 
+### In Development 🚧
+- 🚧 Timeless Jewel calculations (v0.6.0)
+- 🚧 Cluster Jewel subgraph support (v0.6.0)
+- 🚧 Unique Jewel validation (v0.6.0)
+
 ### Planned for Future Phases 📋
 - 📋 Item optimization (equipment upgrades)
 - 📋 Gem link optimization
-- 📋 Timeless Jewel support
 - 📋 CLI tool with progress bars
 
 ## 🤝 Contributing
@@ -268,7 +272,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🗺️ Roadmap
 
-**v0.4.0 (Current)** - Phase 4 Complete ✅
+**v0.4.0** - Phase 4 Complete ✅
 - [x] Genetic algorithm implementation
 - [x] Node addition capability (3,287 nodes)
 - [x] Multi-objective optimization (Pareto frontier)
@@ -277,17 +281,24 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Visualization suite (plots, diffs, evolution)
 - [x] Integration examples and documentation
 
-**v0.5.0 (Current)** - Desktop GUI 🚧
+**v0.5.0** - Desktop GUI (Shelved) 📋
 - [x] PyQt6 desktop application
 - [x] PoB code input/output
 - [x] Build information display
 - [x] Optimizer configuration UI
 - [x] Real-time progress tracking
-- [ ] Passive tree visualization canvas
-- [ ] Animated genetic algorithm visualization
-- [ ] Gear and gem parsing/display
+- [ ] Passive tree visualization canvas (in progress)
+- *GUI development shelved - see `feature/gui-development` branch*
 
-**v0.6.0** - Polish & Testing
+**v0.6.0 (Current)** - Jewel Support 🚧
+- [ ] Timeless jewel calculations (5 types)
+- [ ] Cluster jewel subgraph support (3 sizes)
+- [ ] Unique jewel validation (178 types)
+- [ ] JewelRegistry for protected nodes
+- [ ] Optimizer constraints for jewel mechanics
+- *See `IMPLEMENTATION_SUMMARY.md` for details*
+
+**v0.7.0** - Polish & Testing
 - [ ] Comprehensive test suite expansion
 - [ ] Performance benchmarking and optimization
 - [ ] Bug fixes and edge case handling
@@ -297,7 +308,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [ ] Item optimization
 - [ ] Gem link optimization
 - [ ] Community feedback integration
-- [ ] Production deployment infrastructure
 
 ## ⚠️ Disclaimer
 
@@ -305,6 +315,6 @@ This is a third-party tool and is not affiliated with Grinding Gear Games. Path 
 
 ---
 
-**Status:** ✅ Phase 4 Complete | All Core Features Implemented | Ready for Polish & UI Work
+**Status:** 🚧 Implementing Jewel Support | GUI Shelved | See IMPLEMENTATION_SUMMARY.md
 
-Last Updated: November 2025
+Last Updated: December 2025
