@@ -72,8 +72,12 @@ logs/
 
 # Data files (large)
 data/cache/
+data/timeless_jewels/
 *.pkl
 *.pickle
+
+# PoB decompressed timeless jewel data (generated, not tracked)
+PathOfBuilding/src/Data/TimelessJewelData/*.bin
 
 # macOS
 .DS_Store
