@@ -1,320 +1,237 @@
 # Path of Exile Build Optimizer
 
-An intelligent build optimization tool for Path of Exile that uses genetic algorithms and Path of Building's calculation engine to automatically generate optimized character builds.
+A passive tree optimization tool for Path of Exile that uses genetic algorithms and Path of Building's calculation engine to automatically improve character builds.
 
-## 🎯 Project Goals
+## Overview
 
-- **100% Calculation Accuracy:** Uses Path of Building's battle-tested calculation engine
-- **Intelligent Optimization:** Genetic algorithms to explore the massive build space
-- **Multi-Objective:** Balance DPS, survivability, and budget constraints
-- **Community Integration:** Compatible with PoB import/export format
+This tool takes a Path of Building export code, analyzes the passive tree, and uses optimization algorithms to find better node allocations. It leverages PoB's actual calculation engine for accurate DPS/defense numbers, supports jewel mechanics (timeless, cluster, unique), and outputs an optimized PoB code you can import directly.
 
-## 🚀 Quick Start
+**Key Features:**
+- Uses PoB's real calculation engine (not approximations)
+- Genetic algorithm explores the massive build space intelligently
+- Supports timeless jewels, cluster jewels, and unique jewels
+- Protects jewel-modified nodes from optimizer changes
+- CLI tool for scripting and automation
+- Outputs importable PoB codes
+
+## Installation
 
 ```bash
-# Clone with submodules
+# Clone with submodules (required for PoB engine)
 git clone --recursive https://github.com/alecrivet/poe-optimizer.git
 cd poe-optimizer
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install package
+pip install -e .
 
-# Launch Desktop GUI (easiest!)
-python run_gui.py
-
-# Or try integration examples
-python examples/integration/example_1_quick_optimization.py
-
-# Or run quick test
-python tests/test_optimizer.py
+# Verify installation
+poe-optimizer setup
 ```
 
-**Note:** All core features are implemented! The optimizer can add/remove nodes, optimize masteries, handle multiple objectives, and visualize results. Use the **Desktop GUI** for the easiest experience, or see `examples/integration/` for programmatic workflows.
+### Requirements
 
-## 📋 Implementation Progress
+- Python 3.9+
+- LuaJIT (required for PoB calculations)
+- Git (for submodules)
 
-This project is being built in 4 phases:
+**macOS:**
+```bash
+brew install luajit
+```
 
-- [x] **Phase 1:** PoB Integration ✅
-  - XML codec (encode/decode PoB builds)
-  - XML parser (extract stats)
-  - XML modifier (modify builds)
-  - Lua calculation interface
+**Ubuntu/Debian:**
+```bash
+sudo apt install luajit
+```
 
-- [x] **Phase 2:** Relative Calculator ✅
-  - Ratio-based extrapolation
-  - Tree modification detection
-  - Multi-stat evaluation (DPS, Life, EHP)
+**Windows:**
+Download LuaJIT from https://luajit.org/download.html
 
-- [x] **Phase 3:** Tree Optimizer ✅
-  - Greedy optimization algorithm
-  - Node impact analysis
-  - Objective functions (DPS, Life, EHP, balanced)
+## Quick Start
 
-- [x] **Phase 4:** Advanced Optimization ✅
-  - Genetic algorithm (evolution-based optimization)
-  - Multi-objective optimization (Pareto frontier)
-  - Node addition capability (3,287 nodes parsed)
-  - Mastery optimization (213 mastery nodes)
-  - NSGA-II algorithm components
+```bash
+# Analyze a build
+poe-optimizer analyze build.xml
 
-**Current Status:** Phase 4 Complete! All core features implemented and tested.
+# Optimize for DPS (default)
+poe-optimizer optimize build.xml -o optimized.xml
 
-## 🏗️ Architecture
+# Optimize for life
+poe-optimizer optimize build.xml --objective life
+
+# View jewel information
+poe-optimizer jewels build.xml
+
+# Compare two builds
+poe-optimizer diff original.xml optimized.xml
+
+# Get JSON output for scripting
+poe-optimizer analyze build.xml --json
+```
+
+### Using PoB Codes Directly
+
+```bash
+# Decode a PoB code to XML
+poe-optimizer decode "eNrtfVuT4siS..." -o build.xml
+
+# Or pipe directly
+echo "eNrtfVuT4siS..." | poe-optimizer decode - | poe-optimizer analyze -
+
+# Encode back to PoB code
+poe-optimizer encode optimized.xml
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `optimize` | Run genetic algorithm optimization on a build |
+| `analyze` | Display build statistics and passive tree info |
+| `diff` | Compare two builds side-by-side |
+| `jewels` | Show jewel information and protected nodes |
+| `encode` | Convert XML to PoB import code |
+| `decode` | Convert PoB code to XML |
+| `setup` | Verify installation and dependencies |
+
+### Optimization Options
+
+```bash
+poe-optimizer optimize build.xml \
+  --objective dps \           # dps, life, ehp, balanced
+  --generations 50 \          # Evolution generations
+  --population 30 \           # Population size
+  --output optimized.xml \    # Output file
+  --json                      # JSON output for scripting
+```
+
+## How It Works
+
+1. **Parse Build:** Decode PoB code and extract passive tree, jewels, items
+2. **Build Graph:** Create connectivity graph of 3,287 passive nodes
+3. **Identify Constraints:** Protect jewel sockets and cluster jewel subgraphs
+4. **Evolve Population:** Genetic algorithm mutates and selects builds
+5. **Evaluate Fitness:** Call PoB's Lua engine for accurate stat calculations
+6. **Output Result:** Generate optimized PoB code
+
+### Optimization Algorithms
+
+**Genetic Algorithm (default)**
+- Population-based evolution (30 individuals, 50 generations)
+- Crossover and mutation operators respect tree connectivity
+- Discovers non-obvious node combinations
+- Typical runtime: 5-15 minutes
+
+**Greedy Optimizer (fast)**
+- Iterative local search
+- Analyzes each node's marginal impact
+- Best for quick improvements
+- Typical runtime: 1-3 minutes
+
+## Jewel Support
+
+The optimizer understands Path of Exile's jewel mechanics:
+
+### Timeless Jewels
+- Parses seed and variant from jewel names
+- Loads PoB's legion data for node transformations
+- Protects jewel socket from removal
+
+### Cluster Jewels
+- Identifies cluster jewel subgraphs (nodes with ID >= 65536)
+- Protects entire subgraph from optimizer modification
+- Preserves notable allocations
+
+### Unique Jewels
+- Recognizes 178 unique jewel types
+- Protects socketed locations
+- Passes through to PoB for effect calculation
+
+```bash
+# View all jewels and protected nodes
+poe-optimizer jewels build.xml --json
+```
+
+## Project Structure
 
 ```
 poe-optimizer/
-├── PathOfBuilding/              # Git submodule - PoB source
 ├── src/
-│   ├── pob/                     # PoB interface layer ✅
-│   │   ├── codec.py             # Encode/decode PoB codes
-│   │   ├── xml_parser.py        # Parse pre-calculated stats
-│   │   ├── modifier.py          # Modify builds (tree/gems/level)
-│   │   ├── relative_calculator.py # Ratio extrapolation
-│   │   ├── caller.py            # Python → Lua interface
-│   │   ├── tree_parser.py       # Passive tree graph (3,287 nodes)
-│   │   ├── mastery_optimizer.py # Mastery selection (213 masteries)
-│   │   ├── evaluator_manual_tree.lua # Manual tree loading workaround
-│   │   └── evaluator.lua        # Original evaluator
-│   ├── optimizer/               # Optimization algorithms ✅
-│   │   ├── tree_optimizer.py    # Greedy tree optimizer
-│   │   ├── genetic_optimizer.py # Genetic algorithm (evolution-based)
-│   │   ├── multi_objective_optimizer.py # Pareto frontier optimization
-│   │   ├── extended_objectives.py # 7 objectives (DPS/Life/EHP/Mana/ES/Block/Clear)
-│   │   └── constraints.py       # Point budget, attributes, jewel sockets
-│   └── visualization/           # Visualization tools ✅
-│       ├── frontier_plot.py     # Pareto frontier plots (3D/2D)
-│       ├── evolution_plot.py    # Evolution progress tracking
-│       └── tree_diff.py          # Tree difference visualization
-├── tests/                       # Test suite ✅
-│   ├── test_codec.py            # Codec tests
-│   ├── test_modifier.py         # Modifier tests
-│   ├── test_pob_caller.py       # Caller tests
-│   ├── test_relative_calculator.py # Calculator tests
-│   ├── test_optimizer.py        # Optimizer tests
-│   └── test_manual_tree_modifications.py # Tree modification tests
-├── scripts/                     # Utility scripts
-│   ├── analysis/                # Analysis tools
-│   │   └── analyze_tree.py      # Node impact analysis
-│   ├── debug/                   # Debug tools
-│   │   ├── debug_node_removal.py
-│   │   ├── debug_tree_parsing.py
-│   │   └── trace_tree_loading.py
-│   └── demos/                   # Demo scripts
-│       ├── demo_codec.py
-│       └── demo_pob_integration.py
-├── examples/                    # Example builds and workflows
-│   ├── build1                   # Example PoB code
-│   ├── build1.xml               # Decoded XML
-│   ├── outputs/                 # Generated outputs
-│   └── integration/             # Integration workflow examples ✅
-│       ├── example_1_quick_optimization.py      # 2-min greedy workflow
-│       ├── example_2_genetic_algorithm.py       # Evolution-based optimization
-│       ├── example_3_multi_objective.py         # Trade-off exploration
-│       ├── example_4_advanced_features.py       # 7 objectives + constraints
-│       └── example_5_complete_workflow.py       # Full pipeline
-├── notes/                       # Development notes & session logs
-└── docs/                        # Documentation
+│   ├── cli/                    # Command-line interface
+│   │   ├── commands/           # CLI commands (optimize, analyze, etc.)
+│   │   └── formatters/         # Output formatting (console, JSON)
+│   ├── pob/                    # Path of Building interface
+│   │   ├── jewel/              # Jewel parsing (timeless, cluster, unique)
+│   │   ├── codec.py            # PoB code encode/decode
+│   │   ├── caller.py           # Python → Lua bridge
+│   │   ├── tree_parser.py      # Passive tree graph
+│   │   └── modifier.py         # Build modification
+│   ├── optimizer/              # Optimization algorithms
+│   │   ├── genetic_optimizer.py
+│   │   ├── tree_optimizer.py   # Greedy optimizer
+│   │   └── multi_objective_optimizer.py
+│   └── visualization/          # Plotting and analysis
+├── PathOfBuilding/             # PoB submodule (calculation engine)
+├── scripts/                    # Utility scripts
+├── tests/                      # Test suite
+└── examples/                   # Example builds and workflows
 ```
 
-## 🔧 How It Works
-
-1. **Decode Build:** Import PoB build code and decode to XML
-2. **Modify Tree:** Remove/add passive tree nodes to test variations
-3. **Evaluate:** Call PoB's Lua calculation engine via HeadlessWrapper
-4. **Relative Calculation:** Use ratio extrapolation to estimate changes
-5. **Optimize:** Greedy algorithm iteratively improves the build
-6. **Export:** Generate optimized PoB code to import back into Path of Building
-
-### Current Implementation
-
-The optimizer offers two approaches:
-
-**Greedy Optimizer (Fast - 2-5 minutes)**
-- Analyzes each node's impact on objectives
-- Iteratively improves the build via local search
-- Adds and removes nodes intelligently
-- Best for quick improvements
-
-**Genetic Algorithm (Thorough - 10-20 minutes)**
-- Population-based evolution (30 individuals, 50 generations)
-- Explores global optimization space
-- Discovers non-obvious node combinations
-- Best for maximum optimization
-
-Both use relative calculations (~5-10% accuracy) for fast iteration, which is acceptable for ranking and selection.
-
-**Current Limitations:**
-- Timeless Jewels - *Implementation in progress (v0.6.0)*
-- Cluster Jewels - *Implementation in progress (v0.6.0)*
-- Items and gems are fixed (future phases will address this)
-
-## 📚 Documentation
-
-- **[Implementation Guide](notes/guides/POE_Build_Optimizer_Guide_v2.md)** - Complete technical guide
-- **[Session Notes](notes/sessions/)** - Development session logs and progress
-- **[Scripts README](scripts/README.md)** - Documentation for utility scripts
-
-### Integration Examples
-
-See `examples/integration/` for complete end-to-end workflows:
+## Development
 
 ```bash
-# Quick 2-minute optimization (greedy algorithm)
-python examples/integration/example_1_quick_optimization.py
+# Install dev dependencies
+pip install -e ".[dev]"
 
-# Genetic algorithm with evolution tracking
-python examples/integration/example_2_genetic_algorithm.py
+# Run tests
+pytest tests/ -v
 
-# Multi-objective trade-off exploration
-python examples/integration/example_3_multi_objective.py
+# Run specific test
+pytest tests/test_pob_caller.py -v
 
-# Advanced: 7 objectives + constraints
-python examples/integration/example_4_advanced_features.py
-
-# Complete pipeline: greedy vs genetic comparison
-python examples/integration/example_5_complete_workflow.py
+# Format code
+black src/ tests/
+isort src/ tests/
 ```
 
-### Development and Testing
+## Limitations
 
-```bash
-# Analyze a build's passive tree nodes
-python scripts/analysis/analyze_tree.py
+- **Items/Gems:** Currently fixed; optimizer only modifies passive tree
+- **Keystones:** May produce invalid builds if keystones conflict
+- **Ascendancy:** Not currently optimized
+- **Accuracy:** ~5-10% variance from PoB due to calculation method
 
-# Test the optimizer
-python tests/test_optimizer.py
+## Roadmap
 
-# Test relative calculator
-python tests/test_relative_calculator.py
-```
+- [x] **v0.4** - Genetic algorithm, multi-objective optimization
+- [x] **v0.5** - Desktop GUI (shelved, see `feature/gui-development`)
+- [x] **v0.6** - Jewel support and CLI tool
+- [ ] **v0.7** - Performance optimization, expanded test coverage
+- [ ] **v1.0** - Item optimization, gem links, production ready
 
-## 🛠️ Requirements
-
-- Python 3.9+
-- Lua 5.1 or LuaJIT
-- Git (for submodules)
-
-See `requirements.txt` for Python package dependencies.
-
-## 🎮 Features
-
-### Core Features ✅
-- ✅ **PoB Integration:** Full encode/decode support for PoB builds
-- ✅ **Passive Tree Parsing:** 3,287 nodes parsed with full connectivity graph
-- ✅ **Mastery Optimization:** 213 mastery nodes with effect selection
-- ✅ **Relative Calculator:** Fast ratio-based stat extrapolation
-- ✅ **Node Addition/Removal:** Intelligent path finding and tree modification
-
-### Optimization Algorithms ✅
-- ✅ **Greedy Optimizer:** Fast local optimization (2-5 minutes)
-- ✅ **Genetic Algorithm:** Evolution-based global optimization (10-20 minutes)
-- ✅ **Multi-Objective:** Pareto frontier exploration (NSGA-II components)
-- ✅ **7 Objectives:** DPS, Life, EHP, Mana, Energy Shield, Block, Clear Speed
-- ✅ **Constraint System:** Point budget, attribute requirements, jewel sockets
-
-### Visualization & Analysis ✅
-- ✅ **Pareto Frontier Plots:** 3D/2D interactive visualizations
-- ✅ **Evolution Tracking:** Fitness progress and convergence analysis
-- ✅ **Tree Diff Viewer:** Visual comparison of builds
-- ✅ **Node Impact Analysis:** Detailed stat contribution reports
-
-### Desktop GUI ✅
-- ✅ **PyQt6 Application:** Native desktop app for individual use
-- ✅ **PoB Code I/O:** Paste input, copy optimized output
-- ✅ **Build Viewer:** Display character, stats, gear, gems
-- ✅ **Optimizer Controls:** Configure algorithm, objective, parameters
-- ✅ **Real-time Progress:** Background optimization with live updates
-- ✅ **Results Comparison:** Before/after stats table
-- 🚧 **Tree Visualization:** Passive tree canvas (in progress)
-- 🚧 **Animated GA:** Watch genetic algorithm work (in progress)
-
-### In Development 🚧
-- 🚧 Timeless Jewel calculations (v0.6.0)
-- 🚧 Cluster Jewel subgraph support (v0.6.0)
-- 🚧 Unique Jewel validation (v0.6.0)
-
-### Planned for Future Phases 📋
-- 📋 Item optimization (equipment upgrades)
-- 📋 Gem link optimization
-- 📋 CLI tool with progress bars
-
-## 🤝 Contributing
-
-This is an open-source project. Contributions are welcome!
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
+2. Create a feature branch (`git checkout -b feature/improvement`)
+3. Commit changes (`git commit -m 'Add improvement'`)
+4. Push to branch (`git push origin feature/improvement`)
 5. Open a Pull Request
 
-## 📜 License
+## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License. See [LICENSE](LICENSE) for details.
 
-**Note:** This project uses [Path of Building Community](https://github.com/PathOfBuildingCommunity/PathOfBuilding) as a submodule. Path of Building is licensed under the MIT License. See `PathOfBuilding/LICENSE` for details.
+This project uses [Path of Building Community](https://github.com/PathOfBuildingCommunity/PathOfBuilding) as a submodule (MIT License).
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- **Path of Building Community** - For the excellent build planning tool and calculation engine
-- **poe.ninja** - For build and economy data
-- **PoE Community** - For years of game knowledge and theorycrafting
-
-## 📞 Contact
-
-- GitHub Issues: [Report bugs or request features](https://github.com/alecrivet/poe-optimizer/issues)
-- PoE Forums: [Discussion thread](link-when-available)
-
-## 🗺️ Roadmap
-
-**v0.4.0** - Phase 4 Complete ✅
-- [x] Genetic algorithm implementation
-- [x] Node addition capability (3,287 nodes)
-- [x] Multi-objective optimization (Pareto frontier)
-- [x] Extended objectives (7 total metrics)
-- [x] Constraint system (points, attributes, jewels)
-- [x] Visualization suite (plots, diffs, evolution)
-- [x] Integration examples and documentation
-
-**v0.5.0** - Desktop GUI (Shelved) 📋
-- [x] PyQt6 desktop application
-- [x] PoB code input/output
-- [x] Build information display
-- [x] Optimizer configuration UI
-- [x] Real-time progress tracking
-- [ ] Passive tree visualization canvas (in progress)
-- *GUI development shelved - see `feature/gui-development` branch*
-
-**v0.6.0 (Current)** - Jewel Support 🚧
-- [ ] Timeless jewel calculations (5 types)
-- [ ] Cluster jewel subgraph support (3 sizes)
-- [ ] Unique jewel validation (178 types)
-- [ ] JewelRegistry for protected nodes
-- [ ] Optimizer constraints for jewel mechanics
-- *See `IMPLEMENTATION_SUMMARY.md` for details*
-
-**v0.7.0** - Polish & Testing
-- [ ] Comprehensive test suite expansion
-- [ ] Performance benchmarking and optimization
-- [ ] Bug fixes and edge case handling
-- [ ] CLI tool with progress bars
-
-**v1.0.0** - Production Ready
-- [ ] Item optimization
-- [ ] Gem link optimization
-- [ ] Community feedback integration
-
-## ⚠️ Disclaimer
-
-This is a third-party tool and is not affiliated with Grinding Gear Games. Path of Exile is a registered trademark of Grinding Gear Games.
+- **Path of Building Community** - Calculation engine and build data
+- **Grinding Gear Games** - Path of Exile
 
 ---
 
-**Status:** 🚧 Implementing Jewel Support | GUI Shelved | See IMPLEMENTATION_SUMMARY.md
-
-Last Updated: December 2025
+*This is a third-party tool and is not affiliated with Grinding Gear Games.*
