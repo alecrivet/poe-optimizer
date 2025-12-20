@@ -27,6 +27,62 @@ file:close()
 -- Load HeadlessWrapper
 dofile("HeadlessWrapper.lua")
 
+-- Override HeadlessWrapper stubs to enable timeless jewel data loading
+-- GetScriptPath: Return current directory (PoB src path)
+function GetScriptPath()
+    return "."
+end
+
+-- NewFileSearch: Provide file search capability for checking .bin file existence
+-- This is needed by DataLegionLookUpTableHelper to detect pre-decompressed files
+local lfs_ok, lfs = pcall(require, "lfs")
+
+function NewFileSearch(pattern)
+    -- Handle glob patterns by converting to direct file check
+    -- Pattern is like "./Data/TimelessJewelData/LethalPride.bin"
+    local filepath = pattern:gsub("%*", "")  -- Remove wildcards for direct check
+
+    -- Check if file exists
+    local file = io.open(filepath, "rb")
+    if not file then
+        return nil
+    end
+    file:close()
+
+    -- Return a file handle object
+    local handle = {
+        filepath = filepath,
+        filename = filepath:match("([^/]+)$") or filepath,
+        done = false
+    }
+
+    function handle:GetFileName()
+        return self.filename
+    end
+
+    function handle:GetFileModifiedTime()
+        -- Return different times to ensure .bin is considered newer than .zip
+        -- This is critical for PoB to load .bin files instead of trying to decompress .zip
+        if self.filepath:match("%.bin$") then
+            -- .bin files: return a very recent time (far future)
+            return 2000000000  -- Year ~2033
+        elseif self.filepath:match("%.zip") then
+            -- .zip files: return an older time
+            return 1000000000  -- Year ~2001
+        end
+        -- Default: current time
+        return os.time()
+    end
+
+    function handle:NextFile()
+        -- For single file searches, no next file
+        self.done = true
+        return false
+    end
+
+    return handle
+end
+
 -- Load the build
 loadBuildFromXML(xmlContent, "TestBuild")
 

@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poe-optimizer"
+version = "0.6.0-dev"
+description = "Path of Exile Build Optimizer - Optimize passive trees using PoB calculations"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "poe-optimizer contributors"}
+]
+keywords = ["poe", "path-of-exile", "optimizer", "pob", "build"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment",
+]
+dependencies = [
+    "click>=8.0",
+    "networkx>=3.0",
+    "numpy>=1.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+    "isort",
+]
+gui = [
+    "PySide6>=6.0",
+]
+
+[project.scripts]
+poe-optimizer = "src.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/alecrivet/poe-optimizer"
+Repository = "https://github.com/alecrivet/poe-optimizer"
+Issues = "https://github.com/alecrivet/poe-optimizer/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

@@ -45,6 +45,8 @@ from ..pob.mastery_optimizer import (
     MasteryDatabase,
 )
 from ..pob.tree_parser import load_passive_tree, PassiveTreeGraph
+from ..pob.jewel.registry import JewelRegistry
+from ..pob.jewel.cluster import is_cluster_node_id
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +270,9 @@ class GeneticTreeOptimizer:
             self.mastery_db = None
             self.mastery_optimizer = None
 
+        # Protected nodes (jewel sockets, cluster nodes) - set during optimize()
+        self.protected_nodes: Set[int] = set()
+
         logger.info(
             f"Initialized GeneticTreeOptimizer "
             f"(pop_size={population_size}, generations={generations}, "
@@ -312,6 +317,16 @@ class GeneticTreeOptimizer:
         # Get original tree info
         original_summary = get_passive_tree_summary(build_xml)
         original_nodes = set(original_summary['allocated_nodes'])
+
+        # Initialize protected nodes from jewel registry
+        # Protected nodes include: jewel sockets, cluster jewel nodes
+        jewel_registry = JewelRegistry.from_build_xml(build_xml)
+        self.protected_nodes = jewel_registry.get_protected_nodes(original_nodes)
+        if self.protected_nodes:
+            logger.info(
+                f"Protected nodes (jewel sockets + cluster nodes): "
+                f"{len(self.protected_nodes)}"
+            )
 
         # Initialize population
         population = self._initialize_population(
@@ -539,17 +554,19 @@ class GeneticTreeOptimizer:
                         except Exception as e:
                             logger.debug(f"Failed to add node {node_to_add}: {e}")
 
-            elif action == 'remove' and len(current_nodes) > 50:
-                # Remove random node (but keep tree reasonably sized)
-                node_to_remove = random.choice(list(current_nodes))
-                try:
-                    xml = modify_passive_tree_nodes(
-                        xml,
-                        nodes_to_remove=[node_to_remove]
-                    )
-                    current_nodes.discard(node_to_remove)
-                except Exception as e:
-                    logger.debug(f"Failed to remove node {node_to_remove}: {e}")
+            elif action == 'remove':
+                # Remove random node (excluding protected nodes like jewel sockets and cluster nodes)
+                removable_nodes = current_nodes - self.protected_nodes
+                if len(removable_nodes) > 50:  # Keep tree reasonably sized
+                    node_to_remove = random.choice(list(removable_nodes))
+                    try:
+                        xml = modify_passive_tree_nodes(
+                            xml,
+                            nodes_to_remove=[node_to_remove]
+                        )
+                        current_nodes.discard(node_to_remove)
+                    except Exception as e:
+                        logger.debug(f"Failed to remove node {node_to_remove}: {e}")
 
             elif action == 'mastery' and self.optimize_masteries:
                 # Change random mastery selection
@@ -669,9 +686,9 @@ class GeneticTreeOptimizer:
         # Start from parent1's XML and modify to match offspring
         offspring_xml = parent1.xml
 
-        # Calculate nodes to add/remove
+        # Calculate nodes to add/remove (excluding protected nodes from removal)
         nodes_to_add = list(offspring_nodes - nodes1)
-        nodes_to_remove = list(nodes1 - offspring_nodes)
+        nodes_to_remove = list((nodes1 - offspring_nodes) - self.protected_nodes)
 
         try:
             # Apply node changes
@@ -754,9 +771,10 @@ class GeneticTreeOptimizer:
                         logger.debug(f"Mutation add failed: {e}")
 
         elif mutation_type == 'remove':
-            # Remove random node
-            if len(current_nodes) > 50:  # Keep tree reasonably sized
-                node_to_remove = random.choice(list(current_nodes))
+            # Remove random node (excluding protected nodes like jewel sockets and cluster nodes)
+            removable_nodes = current_nodes - self.protected_nodes
+            if len(removable_nodes) > 50:  # Keep tree reasonably sized
+                node_to_remove = random.choice(list(removable_nodes))
                 try:
                     xml = modify_passive_tree_nodes(
                         xml,
