@@ -148,6 +148,24 @@ Fast fixes for common issues.
 
 ---
 
+### `/refresh` - Reload Context
+Refresh Claude's memory after compaction or new session.
+
+**Usage:**
+```
+/refresh
+```
+
+**Features:**
+- Reads project README and documentation
+- Reviews recent commits and changes
+- Summarizes current branch state
+- Identifies active tasks and next steps
+- Provides full project context
+- Perfect after `/compact` or starting new session
+
+---
+
 ## How to Use
 
 1. Type `/` in Claude Code to see available skills
@@ -174,8 +192,9 @@ Place new skills in `.claude/skills/` directory.
 
 ## Tips
 
+- Use `/refresh` after compaction or starting a new session
 - Use `/commit` after every logical change
 - Run `/test` before committing
 - Use `/review` before creating PRs
 - `/quick` for minor fixes, `/refactor` for major improvements
-- `/summary` before standup meetings
+- `/summary` before standup meetings or PR creation
