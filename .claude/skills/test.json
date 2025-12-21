@@ -1,0 +1,8 @@
+{
+  "name": "test",
+  "description": "Run tests with coverage and analyze results",
+  "instructions": "Run the test suite and provide analysis:\n\n1. Determine test scope:\n   - If user specifies file/module: run specific tests\n   - If no specification: run full test suite\n\n2. Run tests with coverage:\n   ```bash\n   ./venv/bin/pytest [path] -v --cov=src --cov-report=term-missing\n   ```\n\n3. Analyze results:\n   - Report pass/fail count\n   - Identify failing tests and reasons\n   - Show coverage percentage\n   - Highlight uncovered lines\n\n4. If tests fail:\n   - Summarize the failures\n   - Suggest potential fixes\n   - Ask if user wants help debugging\n\n5. If coverage is low:\n   - Identify modules with < 80% coverage\n   - Suggest what tests to add\n\nOptions user can specify:\n- Specific test file or function\n- Coverage threshold\n- Verbose or quiet output\n- HTML coverage report\n\nIMPORTANT:\n- Always use the venv pytest\n- Don't fix code unless user asks\n- Focus on clear, actionable feedback",
+  "match": {
+    "type": "usage"
+  }
+}

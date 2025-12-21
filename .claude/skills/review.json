@@ -1,0 +1,8 @@
+{
+  "name": "review",
+  "description": "Review recent changes for quality and issues",
+  "instructions": "Review recent code changes:\n\n1. Get changes to review:\n   - If user specifies files: review those\n   - Otherwise: `git diff --staged` or recent commits\n\n2. Analyze code quality:\n   - **Bugs**: Potential runtime errors, edge cases\n   - **Security**: SQL injection, XSS, command injection, secrets\n   - **Performance**: Inefficient algorithms, unnecessary loops\n   - **Style**: Inconsistent formatting, naming conventions\n   - **Best Practices**: Error handling, type hints, docstrings\n   - **Tests**: Are changes tested?\n\n3. Provide feedback in this format:\n   ### ✅ Good\n   - What's done well\n   \n   ### ⚠️ Issues Found\n   - **[Severity]** File:Line - Description\n   - Suggested fix\n   \n   ### 💡 Suggestions\n   - Optional improvements\n\n4. Severity levels:\n   - 🔴 **Critical**: Security, data loss, crashes\n   - 🟡 **Warning**: Bugs, poor performance\n   - 🔵 **Info**: Style, best practices\n\nIMPORTANT:\n- Be constructive, not critical\n- Suggest specific fixes\n- Prioritize actual issues over style\n- Don't nitpick trivial things",
+  "match": {
+    "type": "usage"
+  }
+}

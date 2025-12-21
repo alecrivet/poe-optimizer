@@ -1,0 +1,8 @@
+{
+  "name": "summary",
+  "description": "Summarize changes since last commit or in a branch",
+  "instructions": "Summarize code changes:\n\n1. Determine scope:\n   - If user specifies timeframe: use that\n   - Otherwise: since last commit or merge to main\n\n2. Get change information:\n   ```bash\n   git log --oneline -n 10\n   git diff HEAD~1  # or appropriate range\n   git diff --stat HEAD~1\n   ```\n\n3. Create summary:\n   ## Recent Changes\n   \n   **Files Modified**: X files, +Y lines, -Z lines\n   \n   **Commits**:\n   - commit_hash: message\n   \n   **Changes by Category**:\n   - 🆕 New Features: ...\n   - 🐛 Bug Fixes: ...\n   - 📚 Documentation: ...\n   - ✅ Tests: ...\n   - ♻️ Refactoring: ...\n   \n   **Key Files Changed**:\n   - path/to/file.py (+X, -Y lines)\n     - Brief description of changes\n\n4. Highlight:\n   - Breaking changes\n   - New dependencies\n   - Removed functionality\n\nIMPORTANT:\n- Keep it concise but informative\n- Group related changes\n- Use emojis sparingly for categories only\n- Focus on what matters to developers",
+  "match": {
+    "type": "usage"
+  }
+}

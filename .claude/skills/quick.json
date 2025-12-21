@@ -1,0 +1,8 @@
+{
+  "name": "quick",
+  "description": "Quick fixes and improvements for common issues",
+  "instructions": "Quickly fix common issues:\n\n1. Identify the issue:\n   - Lint errors\n   - Type errors\n   - Import errors\n   - Simple bugs\n   - Missing docstrings\n   - Formatting issues\n\n2. Common quick fixes:\n   - Fix import statements\n   - Add missing type hints\n   - Fix simple syntax errors\n   - Add basic docstrings\n   - Fix obvious bugs\n   - Update deprecated usage\n\n3. Process:\n   - Identify all instances of the issue\n   - Fix them consistently\n   - Verify with tests if available\n   - Keep changes minimal\n\n4. What NOT to do:\n   - Don't refactor unrelated code\n   - Don't add new features\n   - Don't make breaking changes\n   - Don't change behavior\n\nExamples:\n- `/quick fix imports` - Fix import statements\n- `/quick add docstrings` - Add missing docstrings\n- `/quick type hints` - Add type annotations\n- `/quick format` - Fix formatting issues\n\nIMPORTANT:\n- Be fast and focused\n- Fix only what's asked\n- Don't over-engineer\n- Commit immediately after fixing",
+  "match": {
+    "type": "usage"
+  }
+}

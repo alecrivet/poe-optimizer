@@ -1,0 +1,8 @@
+{
+  "name": "doc",
+  "description": "Document code, features, or create README updates",
+  "instructions": "Document the specified code or feature:\n\n1. If user provides a file path:\n   - Read the file\n   - Analyze the code structure\n   - Add/update docstrings for classes and functions\n   - Add inline comments for complex logic\n   - Update type hints if missing\n\n2. If user asks to document a feature:\n   - Find related files\n   - Create or update relevant .md file in docs/ or root\n   - Include: overview, usage examples, API reference\n   - Add code examples that actually work\n\n3. For README updates:\n   - Read current README\n   - Identify what needs updating\n   - Maintain consistent style and formatting\n   - Update examples to reflect current API\n\nFormat:\n- Use clear, concise language\n- Include code examples\n- Follow existing documentation style\n- Use proper markdown formatting\n\nIMPORTANT:\n- Don't add emojis unless explicitly requested\n- Focus on clarity over cleverness\n- Keep it up-to-date with actual code",
+  "match": {
+    "type": "usage"
+  }
+}

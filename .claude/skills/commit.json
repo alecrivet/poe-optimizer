@@ -1,0 +1,8 @@
+{
+  "name": "commit",
+  "description": "Smart git commit with conventional commit messages",
+  "instructions": "Create a git commit following these steps:\n\n1. Run `git status` and `git diff --staged` to see what's changed\n2. Analyze the changes and determine:\n   - Type: feat, fix, docs, test, refactor, style, chore\n   - Scope: affected module/component\n   - Breaking changes: if any\n3. Create a commit message following this format:\n   ```\n   <type>(<scope>): <short description>\n   \n   <detailed description if needed>\n   \n   <breaking changes if any>\n   \n   🤖 Generated with [Claude Code](https://claude.com/claude-code)\n   \n   Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\n   ```\n4. Run `git add` for any unstaged files that should be included\n5. Execute the commit\n6. Ask user if they want to push\n\nIMPORTANT:\n- Keep the first line under 72 characters\n- Focus on WHY, not WHAT (code shows what)\n- Be specific and descriptive\n- Only commit when user explicitly asks or confirms",
+  "match": {
+    "type": "usage"
+  }
+}

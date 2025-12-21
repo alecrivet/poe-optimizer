@@ -1,0 +1,8 @@
+{
+  "name": "pr",
+  "description": "Create a pull request with proper description",
+  "instructions": "Create a pull request following these steps:\n\n1. Analyze current branch:\n   - Run `git status` and `git log origin/main..HEAD`\n   - Run `git diff origin/main...HEAD` to see all changes\n\n2. Ensure branch is ready:\n   - Check if all changes are committed\n   - Check if branch is up to date with remote\n   - Push to remote if needed\n\n3. Draft PR description:\n   ## Summary\n   - Bullet points of what changed (WHY, not what)\n   - Reference any issues (#123)\n   \n   ## Changes\n   - List major changes by category\n   \n   ## Testing\n   - How to test the changes\n   - What test cases were added\n   \n   ## Screenshots (if UI changes)\n   \n   🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\n4. Create PR:\n   ```bash\n   gh pr create --title \"<title>\" --body \"<description>\"\n   ```\n\n5. Return the PR URL\n\nIMPORTANT:\n- Make sure commits are pushed first\n- Title should be clear and concise\n- Description should help reviewers understand context\n- Don't create draft PRs unless user specifies",
+  "match": {
+    "type": "usage"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "refactor",
+  "description": "Refactor code while maintaining functionality",
+  "instructions": "Refactor code following these principles:\n\n1. Understand the code:\n   - Read the target file(s)\n   - Identify what it does\n   - Note any tests that exist\n\n2. Identify improvements:\n   - Reduce complexity (cyclomatic complexity)\n   - Remove duplication (DRY)\n   - Improve naming (variables, functions, classes)\n   - Better structure (SOLID principles)\n   - Add type hints if missing\n   - Extract magic numbers to constants\n\n3. Before refactoring:\n   - Run existing tests to ensure they pass\n   - Ask user to confirm scope\n\n4. Refactor incrementally:\n   - Make small, focused changes\n   - One improvement at a time\n   - Keep behavior identical\n\n5. After refactoring:\n   - Run tests again to verify\n   - Show before/after comparison\n   - Explain improvements made\n\nRefactoring patterns:\n- Extract Method: Break large functions\n- Extract Variable: Name complex expressions\n- Rename: Better names\n- Move: Better organization\n- Inline: Remove unnecessary indirection\n\nIMPORTANT:\n- Don't change behavior\n- Don't add features\n- Keep it simple\n- Tests must still pass",
+  "match": {
+    "type": "usage"
+  }
+}
