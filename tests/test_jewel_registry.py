@@ -58,8 +58,9 @@ CLUSTER_JEWEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 UNIQUE_JEWEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <PathOfBuilding>
     <Items>
-        <Item id="3">Crimson Jewel
+        <Item id="3">Rarity: UNIQUE
 Fragility
+Crimson Jewel
 Limited to: 1
 -1 to Maximum Endurance Charges
 +25 to Strength
@@ -82,20 +83,21 @@ Bathed in the blood of 100 sacrificed in the name of Xibaqua
         <Item id="2">Large Cluster Jewel
 Adds 8 Passive Skills
 </Item>
-        <Item id="3">Crimson Jewel
+        <Item id="3">Rarity: UNIQUE
 Fragility
+Crimson Jewel
 -1 to Maximum Endurance Charges
 </Item>
     </Items>
     <Tree>
         <Spec>
-            <Node nodeId="2001" active="true"/>
-            <Node nodeId="2002" active="true"/>
+            <Node nodeId="65537" active="true"/>
+            <Node nodeId="65538" active="true"/>
         </Spec>
     </Tree>
     <Sockets>
         <Socket nodeId="1000" itemId="1"/>
-        <Socket nodeId="2000" itemId="2"/>
+        <Socket nodeId="65536" itemId="2"/>
         <Socket nodeId="3000" itemId="3"/>
     </Sockets>
 </PathOfBuilding>
@@ -193,15 +195,15 @@ class TestJewelRegistry:
         """Test protected nodes from mixed jewels"""
         registry = JewelRegistry.from_build_xml(MIXED_JEWELS_XML)
 
-        allocated_nodes = {1000, 2000, 2001, 2002, 3000, 5000}
+        allocated_nodes = {1000, 65536, 65537, 65538, 3000, 5000}
         protected = registry.get_protected_nodes(allocated_nodes)
 
         # Timeless socket
         assert 1000 in protected
         # Cluster socket and nodes
-        assert 2000 in protected
-        assert 2001 in protected
-        assert 2002 in protected
+        assert 65536 in protected
+        assert 65537 in protected
+        assert 65538 in protected
         # Unique socket
         assert 3000 in protected
         # Regular node should not be protected
@@ -224,11 +226,10 @@ class TestJewelRegistry:
         xml = """<?xml version="1.0" encoding="UTF-8"?>
         <PathOfBuilding>
             <Items>
-                <Item id="1">
-                    Crimson Jewel
-                    Fragility
-                    Unique
-                </Item>
+                <Item id="1">Rarity: UNIQUE
+Fragility
+Crimson Jewel
+</Item>
             </Items>
         </PathOfBuilding>
         """
@@ -243,8 +244,13 @@ class TestJewelRegistry:
         registry = JewelRegistry.from_build_xml(MIXED_JEWELS_XML)
         protected = registry.get_protected_nodes(set())
 
-        # No nodes allocated means no nodes protected
-        assert len(protected) == 0
+        # Jewel sockets are always protected, even if not allocated
+        assert 1000 in protected  # Timeless socket
+        assert 65536 in protected  # Cluster socket
+        assert 3000 in protected  # Unique socket
+        # But cluster subgraph nodes aren't protected if not allocated
+        assert 65537 not in protected
+        assert 65538 not in protected
 
     def test_cluster_jewel_id_detection(self):
         """Test that cluster nodes (ID >= 65536) are detected"""
