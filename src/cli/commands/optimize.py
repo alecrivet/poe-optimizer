@@ -265,4 +265,13 @@ def optimize(
             click.echo(f"  {optimized_code[:80]}...")
             click.echo(f"\nCopy the full code with: poe-optimizer optimize {input_source} --pob-code")
 
+        # ALWAYS save PoB code to a .txt file alongside the output
+        if output_file:
+            pob_file = output_file.replace('.xml', '.txt').replace('.json', '.txt')
+            if not pob_file.endswith('.txt'):
+                pob_file += '.txt'
+            with open(pob_file, "w") as f:
+                f.write(optimized_code)
+            output.info(f"PoB code also saved to: {pob_file}")
+
     output.success(f"Optimization completed in {elapsed:.1f}s")
