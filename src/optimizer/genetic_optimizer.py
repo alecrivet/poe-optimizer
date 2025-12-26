@@ -334,8 +334,12 @@ class GeneticTreeOptimizer:
 
         # Initialize protected nodes from jewel registry
         # Protected nodes include: jewel sockets, cluster jewel nodes
+        # We set protect_empty_sockets=False since we now support jewel removal
         jewel_registry = JewelRegistry.from_build_xml(build_xml)
-        self.protected_nodes = jewel_registry.get_protected_nodes(original_nodes)
+        self.protected_nodes = jewel_registry.get_protected_nodes(
+            original_nodes,
+            protect_empty_sockets=False  # Only protect sockets with jewels
+        )
         if self.protected_nodes:
             logger.info(
                 f"Protected nodes (jewel sockets + cluster nodes): "
@@ -808,6 +812,147 @@ class GeneticTreeOptimizer:
 
         return xml  # Return original if swap failed
 
+    def _mutate_jewel_move(self, xml: str, allocated_nodes: Set[int]) -> str:
+        """
+        Move a random jewel to a random compatible empty socket.
+
+        This allows jewels to explore positions outside the currently occupied
+        sockets, potentially finding better placements with lower pathing costs.
+
+        Args:
+            xml: Build XML
+            allocated_nodes: Currently allocated nodes (for distance calculation)
+
+        Returns:
+            Modified XML with moved jewel (or original if no valid move)
+        """
+        from ..pob.jewel.base import JewelCategory
+        import xml.etree.ElementTree as ET
+
+        try:
+            # Load jewel registry
+            registry = JewelRegistry.from_build_xml(xml)
+
+            # Find movable jewels (not timeless)
+            movable_jewels = [
+                jewel for jewel in registry.all_jewels
+                if jewel.category != JewelCategory.TIMELESS and jewel.socket_node_id
+            ]
+
+            if not movable_jewels:
+                return xml
+
+            # Get occupied sockets
+            occupied_sockets = {
+                j.socket_node_id for j in registry.all_jewels
+                if j.socket_node_id
+            }
+
+            # Pick a random jewel to move
+            jewel = random.choice(movable_jewels)
+
+            # Find ALL compatible sockets (including empty)
+            compatible = self.socket_discovery.find_compatible_sockets(
+                jewel,
+                occupied_sockets,
+                include_empty=True
+            )
+
+            # Filter to only empty sockets (not current, not occupied by others)
+            empty_compatible = [
+                s for s in compatible
+                if s != jewel.socket_node_id and s not in occupied_sockets
+            ]
+
+            if not empty_compatible:
+                return xml  # No empty compatible sockets
+
+            # Pick a random target socket
+            target_socket = random.choice(empty_compatible)
+
+            # Apply move to XML
+            root = ET.fromstring(xml)
+
+            for sockets_elem in root.findall(".//Sockets"):
+                for socket in sockets_elem.findall("Socket"):
+                    item_id_str = socket.get("itemId")
+                    if item_id_str and item_id_str != "0":
+                        try:
+                            item_id = int(item_id_str)
+                            if item_id == jewel.item_id:
+                                socket.set("nodeId", str(target_socket))
+                        except ValueError:
+                            continue
+
+            logger.debug(
+                f"Jewel move mutation: {jewel.item_id} from "
+                f"{jewel.socket_node_id} to {target_socket}"
+            )
+            return ET.tostring(root, encoding='unicode')
+
+        except Exception as e:
+            logger.debug(f"Jewel move mutation failed: {e}")
+
+        return xml
+
+    def _mutate_jewel_removal(self, xml: str) -> str:
+        """
+        Remove a random jewel from the build entirely.
+
+        This allows the optimizer to evaluate whether a jewel provides
+        enough value to justify its pathing cost. Removing a mediocre
+        jewel can free up points for better passive nodes.
+
+        Args:
+            xml: Build XML
+
+        Returns:
+            Modified XML with jewel removed (or original if removal failed)
+        """
+        from ..pob.jewel.base import JewelCategory
+        import xml.etree.ElementTree as ET
+
+        try:
+            registry = JewelRegistry.from_build_xml(xml)
+
+            # Only consider removing non-essential jewels
+            # Don't remove timeless (build-defining) or clusters (complex dependencies)
+            removable_jewels = [
+                j for j in registry.all_jewels
+                if j.category not in [JewelCategory.TIMELESS, JewelCategory.CLUSTER]
+                and j.socket_node_id
+            ]
+
+            if not removable_jewels:
+                return xml
+
+            # Pick a random jewel to remove
+            jewel = random.choice(removable_jewels)
+
+            root = ET.fromstring(xml)
+
+            # Remove jewel from Items section
+            for items_elem in root.findall(".//Items"):
+                for item in items_elem.findall("Item"):
+                    if item.get("id") == str(jewel.item_id):
+                        items_elem.remove(item)
+                        break
+
+            # Clear socket assignment
+            for sockets_elem in root.findall(".//Sockets"):
+                for socket in sockets_elem.findall("Socket"):
+                    if socket.get("itemId") == str(jewel.item_id):
+                        socket.set("itemId", "0")
+                        break
+
+            logger.debug(f"Jewel removal mutation: removed jewel {jewel.item_id}")
+            return ET.tostring(root, encoding='unicode')
+
+        except Exception as e:
+            logger.debug(f"Jewel removal mutation failed: {e}")
+
+        return xml
+
     def _mutate(
         self,
         individual: Individual,
@@ -820,10 +965,12 @@ class GeneticTreeOptimizer:
         Each mutation happens with probability self.mutation_rate.
 
         Possible mutations:
-        1. Add random adjacent node (25% if triggered)
-        2. Remove random node (25% if triggered)
-        3. Change random mastery selection (25% if triggered)
-        4. Swap jewel sockets (25% if triggered, if enabled)
+        1. Add random adjacent node
+        2. Remove random node
+        3. Change random mastery selection
+        4. Swap jewel sockets (if jewel optimization enabled)
+        5. Move jewel to empty socket (if jewel optimization enabled)
+        6. Remove jewel entirely (if jewel optimization enabled)
 
         Example:
         Original: [A, B, C, D] with mastery {M1: 5}
@@ -840,7 +987,7 @@ class GeneticTreeOptimizer:
         # Choose mutation type
         mutation_types = ['add', 'remove', 'mastery']
         if self.optimize_jewel_sockets:
-            mutation_types.append('jewel_swap')
+            mutation_types.extend(['jewel_swap', 'jewel_move', 'jewel_removal'])
 
         mutation_type = random.choice(mutation_types)
 
@@ -890,6 +1037,20 @@ class GeneticTreeOptimizer:
             xml = self._mutate_jewel_swap(xml)
             if xml != original_xml:
                 logger.debug("Mutation: Swapped jewel sockets")
+
+        elif mutation_type == 'jewel_move' and self.optimize_jewel_sockets:
+            # Move a jewel to an empty socket
+            original_xml = xml
+            xml = self._mutate_jewel_move(xml, current_nodes)
+            if xml != original_xml:
+                logger.debug("Mutation: Moved jewel to empty socket")
+
+        elif mutation_type == 'jewel_removal' and self.optimize_jewel_sockets:
+            # Remove a jewel entirely (to free up pathing points)
+            original_xml = xml
+            xml = self._mutate_jewel_removal(xml)
+            if xml != original_xml:
+                logger.debug("Mutation: Removed jewel")
 
         # Create mutated individual (keep same generation and parent IDs)
         mutated = Individual(

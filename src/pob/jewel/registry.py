@@ -105,33 +105,45 @@ class JewelRegistry:
         """Number of socketed jewels."""
         return sum(1 for j in self.all_jewels if j.is_socketed)
 
-    def get_protected_nodes(self, allocated_nodes: Optional[Set[int]] = None) -> Set[int]:
+    def get_protected_nodes(
+        self,
+        allocated_nodes: Optional[Set[int]] = None,
+        protect_empty_sockets: bool = True
+    ) -> Set[int]:
         """
         Return all nodes that should not be modified by the optimizer.
 
         Protected nodes include:
-        - All jewel socket nodes
+        - Jewel socket nodes (for jewels currently socketed, or all if protect_empty_sockets=True)
         - All cluster jewel generated nodes
         - Optionally, nodes from allocated_nodes that are cluster nodes
 
         Args:
             allocated_nodes: Set of allocated node IDs (optional)
+            protect_empty_sockets: If True, protect all known jewel sockets.
+                                   If False, only protect sockets with jewels socketed.
+                                   Default is True for backward compatibility.
 
         Returns:
             Set of protected node IDs
         """
         protected = set()
 
-        # Protect all jewel socket nodes
+        # Protect jewel socket nodes based on protect_empty_sockets setting
         for jewel in self.all_jewels:
             if jewel.socket_node_id:
                 protected.add(jewel.socket_node_id)
 
-        # Protect all cluster jewel generated nodes
+        # Note: If protect_empty_sockets is False and we want to allow
+        # deallocating paths to unused sockets, that would require knowing
+        # which sockets are "empty" on the tree (not tracked in registry).
+        # For now, we only protect sockets that have jewels.
+
+        # Protect all cluster jewel generated nodes (always)
         for cluster in self.cluster_jewels:
             protected.update(cluster.generated_nodes)
 
-        # Also protect any cluster nodes from allocated_nodes
+        # Also protect any cluster nodes from allocated_nodes (always)
         if allocated_nodes:
             for node_id in allocated_nodes:
                 if is_cluster_node_id(node_id):

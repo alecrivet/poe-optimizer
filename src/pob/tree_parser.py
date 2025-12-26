@@ -179,6 +179,50 @@ class PassiveTreeGraph:
 
         return None  # No path found
 
+    def shortest_path_length(
+        self,
+        from_nodes: Set[int],
+        to_node: int
+    ) -> Optional[int]:
+        """
+        Find shortest path length from any source node to target.
+
+        Uses BFS for unweighted shortest path. This is useful for calculating
+        how many points are needed to path from the current tree to a new socket.
+
+        Args:
+            from_nodes: Set of source node IDs (typically allocated nodes)
+            to_node: Target node ID
+
+        Returns:
+            Minimum number of nodes needed to reach to_node, or None if unreachable
+        """
+        if to_node in from_nodes:
+            return 0
+
+        if not from_nodes:
+            return None
+
+        # BFS from all source nodes simultaneously
+        visited = set(from_nodes)
+        queue = [(node, 0) for node in from_nodes]
+
+        while queue:
+            current, distance = queue.pop(0)
+
+            for neighbor_id in self.get_neighbors(current):
+                if neighbor_id in visited:
+                    continue
+
+                visited.add(neighbor_id)
+
+                if neighbor_id == to_node:
+                    return distance + 1
+
+                queue.append((neighbor_id, distance + 1))
+
+        return None  # No path found
+
     def count_nodes(self) -> int:
         """Get total number of nodes in tree."""
         return len(self.nodes)

@@ -221,10 +221,117 @@ class TestSocketDiscovery:
         )
 
         # Should find regular sockets (12345) but not outer rim large cluster sockets
-        compatible = discovery.find_compatible_sockets(unique_jewel, allocated_sockets=set())
+        compatible = discovery.find_compatible_sockets(unique_jewel, occupied_sockets=set())
 
         # Unique jewels can go in regular sockets
         assert 12345 in compatible or len(compatible) >= 0  # Implementation dependent
+
+    def test_find_compatible_sockets_include_empty(self):
+        """Test that include_empty parameter controls empty socket inclusion"""
+        class MockTreeGraph:
+            def __init__(self):
+                # 3 regular sockets: 12345, 12346, 12347
+                self.nodes = {
+                    12345: {'isJewelSocket': True},
+                    12346: {'isJewelSocket': True},
+                    12347: {'isJewelSocket': True},
+                }
+
+        discovery = SocketDiscovery(MockTreeGraph())
+
+        unique_jewel = UniqueJewel(
+            category=JewelCategory.UNIQUE,
+            item_id=1,
+            raw_text="Some Jewel",
+            name="Some Jewel",
+            socket_node_id=12345,
+        )
+
+        # 12345 is occupied by THIS jewel, 12346 is occupied by another jewel, 12347 is empty
+        occupied = {12345, 12346}
+
+        # With include_empty=True (default), should find 12345 (current) and 12347 (empty)
+        compatible = discovery.find_compatible_sockets(unique_jewel, occupied_sockets=occupied)
+        assert 12345 in compatible  # Jewel's current socket
+        assert 12346 not in compatible  # Occupied by another jewel
+        assert 12347 in compatible  # Empty socket included
+
+        # With include_empty=False, should only find occupied sockets (not 12347)
+        compatible_no_empty = discovery.find_compatible_sockets(
+            unique_jewel,
+            occupied_sockets=occupied,
+            include_empty=False
+        )
+        assert 12345 in compatible_no_empty  # Jewel's current socket
+        assert 12346 not in compatible_no_empty  # Occupied by another jewel
+        assert 12347 not in compatible_no_empty  # Empty socket excluded
+
+    def test_calculate_socket_distances(self):
+        """Test socket distance calculation from allocated tree"""
+        class MockTreeGraph:
+            def __init__(self):
+                # Simple linear tree: 1 -- 2 -- 3 (socket) -- 4 -- 5 (socket)
+                # Also: 1 -- 6 (socket)
+                self.nodes = {
+                    1: {'isJewelSocket': False},
+                    2: {'isJewelSocket': False},
+                    3: {'isJewelSocket': True},  # Socket at distance 2 from node 1
+                    4: {'isJewelSocket': False},
+                    5: {'isJewelSocket': True},  # Socket at distance 4 from node 1
+                    6: {'isJewelSocket': True},  # Socket at distance 1 from node 1
+                }
+                self._neighbors = {
+                    1: [2, 6],
+                    2: [1, 3],
+                    3: [2, 4],
+                    4: [3, 5],
+                    5: [4],
+                    6: [1],
+                }
+
+            def get_neighbors(self, node_id):
+                return self._neighbors.get(node_id, [])
+
+            def shortest_path_length(self, from_nodes, to_node):
+                """Simple BFS implementation for mock"""
+                if to_node in from_nodes:
+                    return 0
+                visited = set(from_nodes)
+                queue = [(n, 0) for n in from_nodes]
+                while queue:
+                    current, dist = queue.pop(0)
+                    for neighbor in self.get_neighbors(current):
+                        if neighbor in visited:
+                            continue
+                        visited.add(neighbor)
+                        if neighbor == to_node:
+                            return dist + 1
+                        queue.append((neighbor, dist + 1))
+                return None
+
+        discovery = SocketDiscovery(MockTreeGraph())
+
+        # Allocate just node 1
+        allocated = {1}
+        distances = discovery.calculate_socket_distances(allocated)
+
+        # Socket 3: path 1 -> 2 -> 3 = distance 2
+        assert distances.get(3) == 2
+        # Socket 5: path 1 -> 2 -> 3 -> 4 -> 5 = distance 4
+        assert distances.get(5) == 4
+        # Socket 6: path 1 -> 6 = distance 1
+        assert distances.get(6) == 1
+
+        # Now allocate up to node 3
+        allocated = {1, 2, 3}
+        distances = discovery.calculate_socket_distances(allocated)
+
+        # Socket 3: already allocated, distance 0
+        assert distances.get(3) == 0
+        # Socket 5: path 3 -> 4 -> 5 = distance 2
+        assert distances.get(5) == 2
+        # Socket 6: path 1 -> 6 = distance 1
+        assert distances.get(6) == 1
 
 
 class TestJewelConstraintValidator:

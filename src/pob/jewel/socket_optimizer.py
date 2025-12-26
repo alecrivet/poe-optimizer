@@ -155,21 +155,32 @@ class SocketDiscovery:
         self._socket_cache = sockets
         return sockets
 
-    def _is_jewel_socket_node(self, node_data: dict) -> bool:
-        """Check if a node is a jewel socket."""
-        # Jewel sockets have specific properties in the tree data
-        # They typically have isJewelSocket=True or similar marker
-        return node_data.get('isJewelSocket', False) or \
-               node_data.get('is', '') == 'JewelSocket' or \
-               'JewelSocket' in node_data.get('name', '')
+    def _is_jewel_socket_node(self, node_data) -> bool:
+        """Check if a node is a jewel socket.
 
-    def _classify_socket_type(self, node_id: int, node_data: dict) -> SocketType:
+        Args:
+            node_data: Either a dict or a PassiveNode object
+        """
+        # Handle PassiveNode objects (from load_passive_tree)
+        if hasattr(node_data, 'node_type'):
+            return node_data.node_type == 'jewel'
+
+        # Handle dict format (legacy or test mocks)
+        if isinstance(node_data, dict):
+            return node_data.get('isJewelSocket', False) or \
+                   node_data.get('is', '') == 'JewelSocket' or \
+                   node_data.get('node_type', '') == 'jewel' or \
+                   'JewelSocket' in node_data.get('name', '')
+
+        return False
+
+    def _classify_socket_type(self, node_id: int, node_data) -> SocketType:
         """
         Classify the type of jewel socket.
 
         Args:
             node_id: Socket node ID
-            node_data: Node data from tree graph
+            node_data: Either a dict or a PassiveNode object
 
         Returns:
             SocketType classification
@@ -192,26 +203,39 @@ class SocketDiscovery:
         # Default to regular socket
         return SocketType.REGULAR
 
-    def _get_node_position(self, node_data: dict) -> Optional[Tuple[float, float]]:
-        """Extract (x, y) position from node data."""
-        x = node_data.get('x') or node_data.get('group', {}).get('x')
-        y = node_data.get('y') or node_data.get('group', {}).get('y')
+    def _get_node_position(self, node_data) -> Optional[Tuple[float, float]]:
+        """Extract (x, y) position from node data.
 
-        if x is not None and y is not None:
-            return (float(x), float(y))
+        Args:
+            node_data: Either a dict or a PassiveNode object
+        """
+        # Handle PassiveNode objects
+        if hasattr(node_data, 'x') and hasattr(node_data, 'y'):
+            return (float(node_data.x), float(node_data.y))
+
+        # Handle dict format
+        if isinstance(node_data, dict):
+            x = node_data.get('x') or node_data.get('group', {}).get('x')
+            y = node_data.get('y') or node_data.get('group', {}).get('y')
+            if x is not None and y is not None:
+                return (float(x), float(y))
+
         return None
 
     def find_compatible_sockets(
         self,
         jewel: BaseJewel,
-        allocated_sockets: Set[int]
+        occupied_sockets: Set[int],
+        include_empty: bool = True
     ) -> Set[int]:
         """
         Find all sockets compatible with the given jewel.
 
         Args:
             jewel: Jewel to find sockets for
-            allocated_sockets: Set of currently allocated socket node IDs
+            occupied_sockets: Set of socket node IDs that currently hold jewels
+            include_empty: If True, include unoccupied sockets in results.
+                          If False, only return sockets that are currently occupied.
 
         Returns:
             Set of compatible socket node IDs
@@ -220,8 +244,12 @@ class SocketDiscovery:
         compatible = set()
 
         for node_id, socket in all_sockets.items():
-            # Skip occupied sockets (unless it's the jewel's current socket)
-            if node_id in allocated_sockets and node_id != jewel.socket_node_id:
+            # Skip if occupied by ANOTHER jewel (not this one)
+            if node_id in occupied_sockets and node_id != jewel.socket_node_id:
+                continue
+
+            # Skip empty sockets if not requested
+            if not include_empty and node_id not in occupied_sockets:
                 continue
 
             # Check if socket can hold this jewel type
@@ -229,6 +257,41 @@ class SocketDiscovery:
                 compatible.add(node_id)
 
         return compatible
+
+    def calculate_socket_distances(
+        self,
+        allocated_nodes: Set[int]
+    ) -> Dict[int, int]:
+        """
+        Calculate minimum pathing cost from allocated tree to each socket.
+
+        This tells us how many points it would cost to reach each socket
+        from the current tree. Sockets already in the allocated tree cost 0.
+
+        Args:
+            allocated_nodes: Currently allocated passive nodes
+
+        Returns:
+            Dict mapping socket_node_id -> minimum_points_to_reach
+            Unreachable sockets are not included in the result.
+        """
+        sockets = self.discover_all_sockets()
+        distances = {}
+
+        for socket_id in sockets:
+            if socket_id in allocated_nodes:
+                # Already allocated - 0 additional cost
+                distances[socket_id] = 0
+            else:
+                # Calculate shortest path from any allocated node to this socket
+                min_distance = self.tree_graph.shortest_path_length(
+                    from_nodes=allocated_nodes,
+                    to_node=socket_id
+                )
+                if min_distance is not None:
+                    distances[socket_id] = min_distance
+
+        return distances
 
 
 class JewelConstraintValidator:

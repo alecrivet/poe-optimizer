@@ -460,9 +460,12 @@ class GreedyTreeOptimizer:
         objective: str,
     ) -> Dict[str, str]:
         """
-        Generate candidate jewel socket swaps.
+        Generate candidate jewel socket moves and swaps.
 
-        Tries swapping movable jewels (unique, cluster) between compatible sockets.
+        Includes:
+        - Swaps between occupied sockets
+        - Moves to empty sockets (considering pathing cost)
+
         Timeless jewels are never moved.
 
         Args:
@@ -490,50 +493,68 @@ class GreedyTreeOptimizer:
                 if jewel.category != JewelCategory.TIMELESS and jewel.socket_node_id
             ]
 
-            if len(movable_jewels) < 2:
-                return candidates  # Need at least 2 jewels to swap
+            if not movable_jewels:
+                return candidates
 
-            # Generate swap pairs (limit to first 10 for performance)
-            swap_count = 0
-            max_swaps = 10
+            # Get occupied sockets
+            occupied_sockets = {
+                j.socket_node_id for j in registry.all_jewels
+                if j.socket_node_id
+            }
 
-            for i, jewel1 in enumerate(movable_jewels):
-                if swap_count >= max_swaps:
+            # Get socket distances for point-aware evaluation
+            socket_distances = self.socket_discovery.calculate_socket_distances(
+                allocated_nodes
+            )
+
+            candidate_count = 0
+            max_candidates = 15
+
+            # --- Part 1: Generate moves to empty sockets ---
+            for jewel in movable_jewels:
+                if candidate_count >= max_candidates:
                     break
 
-                for jewel2 in movable_jewels[i + 1:]:
-                    if swap_count >= max_swaps:
+                # Find ALL compatible sockets (including empty)
+                compatible = self.socket_discovery.find_compatible_sockets(
+                    jewel,
+                    occupied_sockets,
+                    include_empty=True
+                )
+
+                current_socket = jewel.socket_node_id
+                current_cost = socket_distances.get(current_socket, 0)
+
+                for target_socket in compatible:
+                    if candidate_count >= max_candidates:
                         break
 
-                    # Check if swap is valid
-                    sockets = self.socket_discovery.discover_all_sockets()
-                    socket1 = sockets.get(jewel1.socket_node_id)
-                    socket2 = sockets.get(jewel2.socket_node_id)
-
-                    if not socket1 or not socket2:
+                    if target_socket == current_socket:
                         continue
 
-                    # Check if each jewel can go in the other's socket
-                    if not (socket1.can_hold_jewel(jewel2) and socket2.can_hold_jewel(jewel1)):
+                    # Skip sockets occupied by other jewels (handled by swaps)
+                    if target_socket in occupied_sockets:
                         continue
 
-                    # Swap is valid - apply it to XML
+                    target_cost = socket_distances.get(target_socket)
+                    if target_cost is None:
+                        continue  # Unreachable socket
+
+                    # Calculate point savings
+                    point_savings = current_cost - target_cost
+
+                    # Apply move to XML
                     try:
                         root = ET.fromstring(current_xml)
 
-                        # Update socket assignments
                         for sockets_elem in root.findall(".//Sockets"):
                             for socket in sockets_elem.findall("Socket"):
                                 item_id_str = socket.get("itemId")
-
                                 if item_id_str and item_id_str != "0":
                                     try:
                                         item_id = int(item_id_str)
-
-                                        if item_id == jewel1.item_id:
-                                            socket.set("nodeId", str(jewel2.socket_node_id))
-                                        elif item_id == jewel2.item_id:
-                                            socket.set("nodeId", str(jewel1.socket_node_id))
+                                        if item_id == jewel.item_id:
+                                            socket.set("nodeId", str(target_socket))
                                     except ValueError:
                                         continue
 
@@ -546,16 +567,83 @@ class GreedyTreeOptimizer:
                                 objective
                             )
 
-                        candidate_name = (
-                            f"Swap jewels: {jewel1.item_id} (socket {jewel1.socket_node_id}) "
-                            f"<-> {jewel2.item_id} (socket {jewel2.socket_node_id})"
-                        )
+                        if point_savings != 0:
+                            candidate_name = (
+                                f"Move jewel {jewel.item_id} to socket {target_socket} "
+                                f"({point_savings:+d} pts)"
+                            )
+                        else:
+                            candidate_name = (
+                                f"Move jewel {jewel.item_id} to socket {target_socket}"
+                            )
                         candidates[candidate_name] = modified_xml
-                        swap_count += 1
+                        candidate_count += 1
 
                     except Exception as e:
-                        logger.debug(f"Failed to apply jewel swap: {e}")
+                        logger.debug(f"Failed to apply jewel move: {e}")
                         continue
+
+            # --- Part 2: Generate swaps between occupied sockets ---
+            if len(movable_jewels) >= 2:
+                for i, jewel1 in enumerate(movable_jewels):
+                    if candidate_count >= max_candidates:
+                        break
+
+                    for jewel2 in movable_jewels[i + 1:]:
+                        if candidate_count >= max_candidates:
+                            break
+
+                        # Check if swap is valid
+                        sockets = self.socket_discovery.discover_all_sockets()
+                        socket1 = sockets.get(jewel1.socket_node_id)
+                        socket2 = sockets.get(jewel2.socket_node_id)
+
+                        if not socket1 or not socket2:
+                            continue
+
+                        # Check if each jewel can go in the other's socket
+                        if not (socket1.can_hold_jewel(jewel2) and socket2.can_hold_jewel(jewel1)):
+                            continue
+
+                        # Swap is valid - apply it to XML
+                        try:
+                            root = ET.fromstring(current_xml)
+
+                            # Update socket assignments
+                            for sockets_elem in root.findall(".//Sockets"):
+                                for socket in sockets_elem.findall("Socket"):
+                                    item_id_str = socket.get("itemId")
+
+                                    if item_id_str and item_id_str != "0":
+                                        try:
+                                            item_id = int(item_id_str)
+
+                                            if item_id == jewel1.item_id:
+                                                socket.set("nodeId", str(jewel2.socket_node_id))
+                                            elif item_id == jewel2.item_id:
+                                                socket.set("nodeId", str(jewel1.socket_node_id))
+                                        except ValueError:
+                                            continue
+
+                            modified_xml = ET.tostring(root, encoding='unicode')
+
+                            # Optimize masteries for this candidate
+                            if self.optimize_masteries:
+                                modified_xml = self._optimize_masteries_for_tree(
+                                    modified_xml,
+                                    objective
+                                )
+
+                            candidate_name = (
+                                f"Swap jewels: {jewel1.item_id} (socket {jewel1.socket_node_id}) "
+                                f"<-> {jewel2.item_id} (socket {jewel2.socket_node_id})"
+                            )
+                            candidates[candidate_name] = modified_xml
+                            candidate_count += 1
+
+                        except Exception as e:
+                            logger.debug(f"Failed to apply jewel swap: {e}")
+                            continue
 
         except Exception as e:
             logger.debug(f"Error loading jewel registry for swaps: {e}")
