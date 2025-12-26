@@ -17,9 +17,12 @@ Features:
 - Node addition: Try adding adjacent unallocated nodes
 - Mastery optimization: Select optimal mastery effects for each tree
 - Budget constraints: Stay within point limits
+- Parallel evaluation: Evaluate multiple candidates simultaneously
 """
 
 import logging
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
@@ -34,6 +37,29 @@ from ..pob.mastery_optimizer import (
 from ..pob.tree_parser import load_passive_tree, PassiveTreeGraph
 
 logger = logging.getLogger(__name__)
+
+
+def _evaluate_candidate(args: Tuple[str, str, str]) -> Tuple[str, str, Optional[RelativeEvaluation]]:
+    """
+    Evaluate a single candidate modification (for parallel execution).
+
+    This is a module-level function to enable pickling for ProcessPoolExecutor.
+
+    Args:
+        args: Tuple of (candidate_name, baseline_xml, modified_xml)
+
+    Returns:
+        Tuple of (candidate_name, modified_xml, evaluation_result or None on error)
+    """
+    name, baseline_xml, modified_xml = args
+    try:
+        # Create a new calculator for this process
+        calculator = RelativeCalculator()
+        eval_result = calculator.evaluate_modification(baseline_xml, modified_xml)
+        return (name, modified_xml, eval_result)
+    except Exception as e:
+        logger.debug(f"Failed to evaluate candidate {name}: {e}")
+        return (name, modified_xml, None)
 
 
 @dataclass
@@ -81,6 +107,7 @@ class GreedyTreeOptimizer:
         optimize_masteries: bool = True,  # Enable mastery optimization
         enable_node_addition: bool = True,  # Enable adding nodes to tree
         optimize_jewel_sockets: bool = False,  # Enable jewel socket swapping
+        max_workers: Optional[int] = None,  # Parallel workers (None = CPU count)
     ):
         """
         Initialize the optimizer.
@@ -92,6 +119,8 @@ class GreedyTreeOptimizer:
             optimize_masteries: If True, optimize mastery effect selections
             enable_node_addition: If True, try adding nodes (requires tree graph)
             optimize_jewel_sockets: If True, try swapping jewels between sockets
+            max_workers: Number of parallel workers for evaluation.
+                         None = use CPU count, 1 = sequential (no parallelism)
         """
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement
@@ -99,6 +128,7 @@ class GreedyTreeOptimizer:
         self.optimize_masteries = optimize_masteries
         self.enable_node_addition = enable_node_addition
         self.optimize_jewel_sockets = optimize_jewel_sockets
+        self.max_workers = max_workers if max_workers is not None else os.cpu_count()
         self.calculator = RelativeCalculator()
 
         # Load mastery database if optimization enabled
@@ -137,7 +167,7 @@ class GreedyTreeOptimizer:
             f"Initialized GreedyTreeOptimizer (max_iterations={max_iterations}, "
             f"min_improvement={min_improvement}%, max_points_change={max_points_change}, "
             f"optimize_masteries={optimize_masteries}, enable_node_addition={enable_node_addition}, "
-            f"optimize_jewel_sockets={optimize_jewel_sockets})"
+            f"optimize_jewel_sockets={optimize_jewel_sockets}, max_workers={self.max_workers})"
         )
 
     def optimize(
@@ -190,13 +220,43 @@ class GreedyTreeOptimizer:
                 logger.info("No more candidates to try - stopping")
                 break
 
-            logger.info(f"Evaluating {len(candidates)} candidates...")
+            logger.info(f"Evaluating {len(candidates)} candidates (workers={self.max_workers})...")
 
-            # Evaluate all candidates
+            # Evaluate all candidates in parallel
             evaluations = {}
-            for name, modified_xml in candidates.items():
-                eval_result = self.calculator.evaluate_modification(build_xml, modified_xml)
-                evaluations[name] = (modified_xml, eval_result)
+
+            if self.max_workers == 1:
+                # Sequential evaluation (for debugging or single-core)
+                for name, modified_xml in candidates.items():
+                    eval_result = self.calculator.evaluate_modification(build_xml, modified_xml)
+                    evaluations[name] = (modified_xml, eval_result)
+            else:
+                # Parallel evaluation using ProcessPoolExecutor
+                eval_args = [
+                    (name, build_xml, modified_xml)
+                    for name, modified_xml in candidates.items()
+                ]
+
+                with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                    futures = {
+                        executor.submit(_evaluate_candidate, args): args[0]
+                        for args in eval_args
+                    }
+
+                    for future in as_completed(futures):
+                        name = futures[future]
+                        try:
+                            result_name, modified_xml, eval_result = future.result()
+                            if eval_result is not None:
+                                evaluations[result_name] = (modified_xml, eval_result)
+                            else:
+                                logger.debug(f"Skipping failed candidate: {result_name}")
+                        except Exception as e:
+                            logger.debug(f"Exception evaluating {name}: {e}")
+
+            if not evaluations:
+                logger.warning("All candidates failed to evaluate")
+                break
 
             # Find best improvement
             best_name, (best_xml, best_eval) = self._select_best(

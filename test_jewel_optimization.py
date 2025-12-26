@@ -57,13 +57,16 @@ for socket_id, distance in sorted(socket_distances.items(), key=lambda x: x[1]):
 # Run greedy optimizer WITH jewel socket optimization
 print("\n" + "="*60)
 print("Running greedy optimizer WITH jewel socket swapping...")
+print("(Using parallel evaluation for faster performance)")
 print("="*60)
 
+import os
 optimizer = GreedyTreeOptimizer(
     max_iterations=20,
     min_improvement=0.1,
     optimize_masteries=True,
     optimize_jewel_sockets=True,  # ENABLE JEWEL SOCKET OPTIMIZATION
+    max_workers=os.cpu_count(),  # Parallel evaluation
 )
 
 start_time = time.time()
