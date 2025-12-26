@@ -7,7 +7,7 @@ from src.pob.codec import decode_pob_code, encode_pob_code, is_valid_pob_code
 from src.pob.caller import PoBCalculator
 import os
 
-def test_build(build_file, build_name):
+def run_build_test(build_file, build_name):
     """Test decoding and evaluating a real PoB build"""
     print(f"\n{'=' * 70}")
     print(f"Testing {build_name}")
@@ -114,7 +114,7 @@ def main():
 
     results = []
     for build_file, build_name in builds:
-        success = test_build(build_file, build_name)
+        success = run_build_test(build_file, build_name)
         results.append((build_name, success))
 
     print("\n" + "=" * 70)
