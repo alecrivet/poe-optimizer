@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from ..pob.codec import encode_pob_code, decode_pob_code
 from ..pob.modifier import modify_passive_tree_nodes, get_passive_tree_summary
 from ..pob.relative_calculator import RelativeCalculator, RelativeEvaluation
+from ..pob.batch_calculator import BatchCalculator
 from ..pob.mastery_optimizer import (
     get_mastery_database,
     MasteryOptimizer,
@@ -108,6 +109,7 @@ class GreedyTreeOptimizer:
         enable_node_addition: bool = True,  # Enable adding nodes to tree
         optimize_jewel_sockets: bool = False,  # Enable jewel socket swapping
         max_workers: Optional[int] = None,  # Parallel workers (None = CPU count)
+        use_batch_evaluation: bool = False,  # EXPERIMENTAL: Use persistent worker pool (may have issues)
     ):
         """
         Initialize the optimizer.
@@ -121,6 +123,9 @@ class GreedyTreeOptimizer:
             optimize_jewel_sockets: If True, try swapping jewels between sockets
             max_workers: Number of parallel workers for evaluation.
                          None = use CPU count, 1 = sequential (no parallelism)
+            use_batch_evaluation: EXPERIMENTAL - If True, use persistent worker pool.
+                                  Currently has issues with PoB's state management.
+                                  Use parallel evaluation (default) for now.
         """
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement
@@ -129,7 +134,16 @@ class GreedyTreeOptimizer:
         self.enable_node_addition = enable_node_addition
         self.optimize_jewel_sockets = optimize_jewel_sockets
         self.max_workers = max_workers if max_workers is not None else os.cpu_count()
-        self.calculator = RelativeCalculator()
+        self.use_batch_evaluation = use_batch_evaluation
+
+        # Initialize calculator based on evaluation mode
+        if use_batch_evaluation:
+            logger.info("Using batch evaluation with persistent worker pool")
+            self.batch_calculator = BatchCalculator(num_workers=self.max_workers)
+            self.calculator = self.batch_calculator  # For compatibility
+        else:
+            self.batch_calculator = None
+            self.calculator = RelativeCalculator()
 
         # Load mastery database if optimization enabled
         if self.optimize_masteries:
@@ -167,7 +181,8 @@ class GreedyTreeOptimizer:
             f"Initialized GreedyTreeOptimizer (max_iterations={max_iterations}, "
             f"min_improvement={min_improvement}%, max_points_change={max_points_change}, "
             f"optimize_masteries={optimize_masteries}, enable_node_addition={enable_node_addition}, "
-            f"optimize_jewel_sockets={optimize_jewel_sockets}, max_workers={self.max_workers})"
+            f"optimize_jewel_sockets={optimize_jewel_sockets}, max_workers={self.max_workers}, "
+            f"use_batch_evaluation={use_batch_evaluation})"
         )
 
     def optimize(
@@ -188,6 +203,12 @@ class GreedyTreeOptimizer:
             OptimizationResult with optimization details
         """
         logger.info(f"Starting optimization with objective: {objective}")
+
+        # Start batch calculator if using batch evaluation
+        if self.use_batch_evaluation and self.batch_calculator:
+            logger.info("Starting worker pool...")
+            num_workers = self.batch_calculator.start()
+            logger.info(f"Worker pool ready ({num_workers} workers)")
 
         # Get baseline stats
         tree_summary = get_passive_tree_summary(build_xml)
@@ -220,16 +241,32 @@ class GreedyTreeOptimizer:
                 logger.info("No more candidates to try - stopping")
                 break
 
-            logger.info(f"Evaluating {len(candidates)} candidates (workers={self.max_workers})...")
+            eval_mode = "batch" if self.use_batch_evaluation else f"parallel ({self.max_workers} workers)"
+            logger.info(f"Evaluating {len(candidates)} candidates ({eval_mode})...")
 
-            # Evaluate all candidates in parallel
+            # Evaluate all candidates
             evaluations = {}
 
-            if self.max_workers == 1:
+            if self.use_batch_evaluation and self.batch_calculator:
+                # Batch evaluation using persistent worker pool (fastest)
+                try:
+                    batch_results = self.batch_calculator.evaluate_batch(
+                        build_xml,
+                        candidates
+                    )
+                    for name, eval_result in batch_results.items():
+                        evaluations[name] = (candidates[name], eval_result)
+                except Exception as e:
+                    logger.error(f"Batch evaluation failed: {e}")
+
+            elif self.max_workers == 1:
                 # Sequential evaluation (for debugging or single-core)
                 for name, modified_xml in candidates.items():
-                    eval_result = self.calculator.evaluate_modification(build_xml, modified_xml)
-                    evaluations[name] = (modified_xml, eval_result)
+                    try:
+                        eval_result = self.calculator.evaluate_modification(build_xml, modified_xml)
+                        evaluations[name] = (modified_xml, eval_result)
+                    except Exception as e:
+                        logger.debug(f"Failed to evaluate {name}: {e}")
             else:
                 # Parallel evaluation using ProcessPoolExecutor
                 eval_args = [
@@ -319,6 +356,25 @@ class GreedyTreeOptimizer:
             modifications_applied=modifications_applied,
             improvement_history=improvement_history,
         )
+
+    def shutdown(self):
+        """
+        Shutdown the optimizer and release resources.
+
+        Call this when done with optimization if using batch evaluation.
+        """
+        if self.batch_calculator:
+            logger.info("Shutting down batch calculator...")
+            self.batch_calculator.shutdown()
+
+    def __enter__(self):
+        """Context manager support for automatic cleanup."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Shutdown on context manager exit."""
+        self.shutdown()
+        return False
 
     def _optimize_masteries_for_tree(
         self,
