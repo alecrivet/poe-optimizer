@@ -60,6 +60,7 @@ benchmarks/
 profile_data/
 cache/
 examples/outputs/
+output/
 
 # Temporary files
 *.tmp

@@ -236,6 +236,7 @@ class GeneticTreeOptimizer:
         tournament_size: int = 3,
         max_points_change: int = 10,
         optimize_masteries: bool = True,
+        optimize_jewel_sockets: bool = False,
     ):
         """
         Initialize genetic algorithm optimizer.
@@ -249,6 +250,7 @@ class GeneticTreeOptimizer:
             tournament_size: Size of tournament for selection
             max_points_change: Maximum point budget change from original
             optimize_masteries: If True, optimize mastery selections
+            optimize_jewel_sockets: If True, include jewel socket swaps in mutations
         """
         self.population_size = population_size
         self.generations = generations
@@ -258,6 +260,7 @@ class GeneticTreeOptimizer:
         self.tournament_size = tournament_size
         self.max_points_change = max_points_change
         self.optimize_masteries = optimize_masteries
+        self.optimize_jewel_sockets = optimize_jewel_sockets
 
         # Initialize components
         self.calculator = RelativeCalculator()
@@ -270,13 +273,24 @@ class GeneticTreeOptimizer:
             self.mastery_db = None
             self.mastery_optimizer = None
 
+        # Initialize jewel socket optimizer components
+        if self.optimize_jewel_sockets:
+            from ..pob.jewel.socket_optimizer import SocketDiscovery, JewelConstraintValidator
+            logger.info("Initializing jewel socket optimizer...")
+            self.socket_discovery = SocketDiscovery(self.tree_graph)
+            self.socket_validator = JewelConstraintValidator(self.tree_graph, self.socket_discovery)
+        else:
+            self.socket_discovery = None
+            self.socket_validator = None
+
         # Protected nodes (jewel sockets, cluster nodes) - set during optimize()
         self.protected_nodes: Set[int] = set()
 
         logger.info(
             f"Initialized GeneticTreeOptimizer "
             f"(pop_size={population_size}, generations={generations}, "
-            f"mutation_rate={mutation_rate}, crossover_rate={crossover_rate})"
+            f"mutation_rate={mutation_rate}, crossover_rate={crossover_rate}, "
+            f"optimize_jewel_sockets={optimize_jewel_sockets})"
         )
 
     def optimize(
@@ -720,6 +734,80 @@ class GeneticTreeOptimizer:
 
         return offspring
 
+    def _mutate_jewel_swap(self, xml: str) -> str:
+        """
+        Randomly swap two jewels between compatible sockets.
+
+        Args:
+            xml: Build XML
+
+        Returns:
+            Modified XML with swapped jewels (or original if no valid swap)
+        """
+        from ..pob.jewel.base import JewelCategory
+        import xml.etree.ElementTree as ET
+
+        try:
+            # Load jewel registry
+            registry = JewelRegistry.from_build_xml(xml)
+
+            # Find movable jewels (not timeless)
+            movable_jewels = [
+                jewel for jewel in registry.all_jewels
+                if jewel.category != JewelCategory.TIMELESS and jewel.socket_node_id
+            ]
+
+            if len(movable_jewels) < 2:
+                return xml  # Need at least 2 jewels to swap
+
+            # Try random swaps until we find a valid one
+            attempts = 0
+            max_attempts = 10
+
+            while attempts < max_attempts:
+                # Pick two random jewels
+                jewel1, jewel2 = random.sample(movable_jewels, 2)
+
+                # Check if swap is valid
+                sockets = self.socket_discovery.discover_all_sockets()
+                socket1 = sockets.get(jewel1.socket_node_id)
+                socket2 = sockets.get(jewel2.socket_node_id)
+
+                if not socket1 or not socket2:
+                    attempts += 1
+                    continue
+
+                # Check if each jewel can go in the other's socket
+                if not (socket1.can_hold_jewel(jewel2) and socket2.can_hold_jewel(jewel1)):
+                    attempts += 1
+                    continue
+
+                # Valid swap found - apply it
+                root = ET.fromstring(xml)
+
+                # Update socket assignments
+                for sockets_elem in root.findall(".//Sockets"):
+                    for socket in sockets_elem.findall("Socket"):
+                        item_id_str = socket.get("itemId")
+
+                        if item_id_str and item_id_str != "0":
+                            try:
+                                item_id = int(item_id_str)
+
+                                if item_id == jewel1.item_id:
+                                    socket.set("nodeId", str(jewel2.socket_node_id))
+                                elif item_id == jewel2.item_id:
+                                    socket.set("nodeId", str(jewel1.socket_node_id))
+                            except ValueError:
+                                continue
+
+                return ET.tostring(root, encoding='unicode')
+
+        except Exception as e:
+            logger.debug(f"Jewel swap mutation failed: {e}")
+
+        return xml  # Return original if swap failed
+
     def _mutate(
         self,
         individual: Individual,
@@ -732,9 +820,10 @@ class GeneticTreeOptimizer:
         Each mutation happens with probability self.mutation_rate.
 
         Possible mutations:
-        1. Add random adjacent node (33% if triggered)
-        2. Remove random node (33% if triggered)
-        3. Change random mastery selection (33% if triggered)
+        1. Add random adjacent node (25% if triggered)
+        2. Remove random node (25% if triggered)
+        3. Change random mastery selection (25% if triggered)
+        4. Swap jewel sockets (25% if triggered, if enabled)
 
         Example:
         Original: [A, B, C, D] with mastery {M1: 5}
@@ -749,7 +838,11 @@ class GeneticTreeOptimizer:
         current_nodes = individual.get_allocated_nodes()
 
         # Choose mutation type
-        mutation_type = random.choice(['add', 'remove', 'mastery'])
+        mutation_types = ['add', 'remove', 'mastery']
+        if self.optimize_jewel_sockets:
+            mutation_types.append('jewel_swap')
+
+        mutation_type = random.choice(mutation_types)
 
         if mutation_type == 'add':
             # Add random adjacent node
@@ -790,6 +883,13 @@ class GeneticTreeOptimizer:
             xml = self._randomize_one_mastery(xml, objective)
             if xml != original_xml:
                 logger.debug("Mutation: Changed mastery selection")
+
+        elif mutation_type == 'jewel_swap' and self.optimize_jewel_sockets:
+            # Swap two jewel sockets
+            original_xml = xml
+            xml = self._mutate_jewel_swap(xml)
+            if xml != original_xml:
+                logger.debug("Mutation: Swapped jewel sockets")
 
         # Create mutated individual (keep same generation and parent IDs)
         mutated = Individual(
