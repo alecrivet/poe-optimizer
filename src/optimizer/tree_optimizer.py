@@ -23,8 +23,15 @@ Features:
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass
+
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+    tqdm = None
 
 from ..pob.codec import encode_pob_code, decode_pob_code
 from ..pob.modifier import modify_passive_tree_nodes, get_passive_tree_summary
@@ -109,7 +116,8 @@ class GreedyTreeOptimizer:
         enable_node_addition: bool = True,  # Enable adding nodes to tree
         optimize_jewel_sockets: bool = False,  # Enable jewel socket swapping
         max_workers: Optional[int] = None,  # Parallel workers (None = CPU count)
-        use_batch_evaluation: bool = False,  # EXPERIMENTAL: Use persistent worker pool (may have issues)
+        use_batch_evaluation: bool = False,  # EXPERIMENTAL: Use persistent worker pool
+        show_progress: bool = True,  # Show progress bars during optimization
     ):
         """
         Initialize the optimizer.
@@ -124,8 +132,7 @@ class GreedyTreeOptimizer:
             max_workers: Number of parallel workers for evaluation.
                          None = use CPU count, 1 = sequential (no parallelism)
             use_batch_evaluation: EXPERIMENTAL - If True, use persistent worker pool.
-                                  Currently has issues with PoB's state management.
-                                  Use parallel evaluation (default) for now.
+            show_progress: If True, show progress bars during optimization.
         """
         self.max_iterations = max_iterations
         self.min_improvement = min_improvement
@@ -135,6 +142,7 @@ class GreedyTreeOptimizer:
         self.optimize_jewel_sockets = optimize_jewel_sockets
         self.max_workers = max_workers if max_workers is not None else os.cpu_count()
         self.use_batch_evaluation = use_batch_evaluation
+        self.show_progress = show_progress and TQDM_AVAILABLE
 
         # Initialize calculator based on evaluation mode
         if use_batch_evaluation:
@@ -225,6 +233,21 @@ class GreedyTreeOptimizer:
         # Baseline evaluation (current build vs itself = no change)
         baseline_eval = self.calculator.evaluate_modification(build_xml, build_xml)
 
+        # Track cumulative improvement for progress display
+        cumulative_improvement = 0.0
+
+        # Create main iteration progress bar
+        iteration_pbar = None
+        if self.show_progress:
+            iteration_pbar = tqdm(
+                total=self.max_iterations,
+                desc="Optimizing",
+                unit="iter",
+                leave=True,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}"
+            )
+            iteration_pbar.set_postfix_str(f"improvement: +0.00%")
+
         for iteration in range(self.max_iterations):
             logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
 
@@ -239,10 +262,16 @@ class GreedyTreeOptimizer:
 
             if not candidates:
                 logger.info("No more candidates to try - stopping")
+                if iteration_pbar:
+                    iteration_pbar.set_postfix_str(f"done! +{cumulative_improvement:.2f}%")
                 break
 
             eval_mode = "batch" if self.use_batch_evaluation else f"parallel ({self.max_workers} workers)"
             logger.info(f"Evaluating {len(candidates)} candidates ({eval_mode})...")
+
+            # Update progress bar description
+            if iteration_pbar:
+                iteration_pbar.set_description(f"Iter {iteration+1}: evaluating {len(candidates)} candidates")
 
             # Evaluate all candidates
             evaluations = {}
@@ -250,18 +279,44 @@ class GreedyTreeOptimizer:
             if self.use_batch_evaluation and self.batch_calculator:
                 # Batch evaluation using persistent worker pool (fastest)
                 try:
+                    # Create candidate progress bar for batch mode
+                    if self.show_progress:
+                        candidate_pbar = tqdm(
+                            total=len(candidates),
+                            desc="  Evaluating",
+                            unit="build",
+                            leave=False,
+                            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+                        )
+
                     batch_results = self.batch_calculator.evaluate_batch(
                         build_xml,
                         candidates
                     )
                     for name, eval_result in batch_results.items():
                         evaluations[name] = (candidates[name], eval_result)
+                        if self.show_progress:
+                            candidate_pbar.update(1)
+
+                    if self.show_progress:
+                        candidate_pbar.close()
                 except Exception as e:
                     logger.error(f"Batch evaluation failed: {e}")
+                    if self.show_progress and 'candidate_pbar' in locals():
+                        candidate_pbar.close()
 
             elif self.max_workers == 1:
                 # Sequential evaluation (for debugging or single-core)
-                for name, modified_xml in candidates.items():
+                candidate_iter = candidates.items()
+                if self.show_progress:
+                    candidate_iter = tqdm(
+                        candidate_iter,
+                        total=len(candidates),
+                        desc="  Evaluating",
+                        unit="build",
+                        leave=False
+                    )
+                for name, modified_xml in candidate_iter:
                     try:
                         eval_result = self.calculator.evaluate_modification(build_xml, modified_xml)
                         evaluations[name] = (modified_xml, eval_result)
@@ -273,6 +328,17 @@ class GreedyTreeOptimizer:
                     (name, build_xml, modified_xml)
                     for name, modified_xml in candidates.items()
                 ]
+
+                # Create candidate progress bar for parallel mode
+                candidate_pbar = None
+                if self.show_progress:
+                    candidate_pbar = tqdm(
+                        total=len(candidates),
+                        desc="  Evaluating",
+                        unit="build",
+                        leave=False,
+                        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+                    )
 
                 with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
                     futures = {
@@ -290,6 +356,12 @@ class GreedyTreeOptimizer:
                                 logger.debug(f"Skipping failed candidate: {result_name}")
                         except Exception as e:
                             logger.debug(f"Exception evaluating {name}: {e}")
+
+                        if candidate_pbar:
+                            candidate_pbar.update(1)
+
+                if candidate_pbar:
+                    candidate_pbar.close()
 
             if not evaluations:
                 logger.warning("All candidates failed to evaluate")
@@ -323,11 +395,14 @@ class GreedyTreeOptimizer:
                 logger.info(
                     f"Improvement below threshold ({improvement:.2f}% < {self.min_improvement}%) - stopping"
                 )
+                if iteration_pbar:
+                    iteration_pbar.set_postfix_str(f"done! +{cumulative_improvement:.2f}%")
                 break
 
             # Apply the improvement
             current_xml = best_xml
             allocated_nodes = set(get_passive_tree_summary(current_xml)['allocated_nodes'])
+            cumulative_improvement += improvement
 
             modifications_applied.append({
                 'iteration': iteration + 1,
@@ -337,6 +412,16 @@ class GreedyTreeOptimizer:
             improvement_history.append(improvement)
 
             logger.info(f"Applied: {best_name} (+{improvement:.2f}% {objective})")
+
+            # Update progress bar
+            if iteration_pbar:
+                iteration_pbar.update(1)
+                iteration_pbar.set_postfix_str(f"improvement: +{cumulative_improvement:.2f}%")
+                iteration_pbar.set_description(f"Iter {iteration+1}: applied {best_name[:30]}")
+
+        # Close progress bar
+        if iteration_pbar:
+            iteration_pbar.close()
 
         # Final evaluation
         final_eval = self.calculator.evaluate_modification(build_xml, current_xml)

@@ -55,9 +55,8 @@ function NewFileSearch(pattern)
     return handle
 end
 
--- Initialize PoB (this is the expensive part - only done once!)
-runCallback("OnInit")
-runCallback("OnFrame")
+-- Note: HeadlessWrapper.lua already calls runCallback("OnInit") and runCallback("OnFrame")
+-- so we don't need to call them again here. The build is already initialized.
 
 -- Signal ready to parent process
 io.stdout:write('{"ready":true}\n')

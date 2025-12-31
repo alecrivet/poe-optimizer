@@ -69,6 +69,7 @@ def main():
         optimize_masteries=True,
         optimize_jewel_sockets=True,  # ENABLE JEWEL SOCKET OPTIMIZATION
         max_workers=os.cpu_count(),  # Parallel evaluation
+        use_batch_evaluation=True,  # Use persistent worker pool for faster evaluation
     )
 
     start_time = time.time()
