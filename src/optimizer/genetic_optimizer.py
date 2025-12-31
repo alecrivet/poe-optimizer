@@ -31,14 +31,24 @@ Advantages over Greedy:
 """
 
 import logging
+import os
 import random
-from typing import Dict, List, Optional, Tuple, Set
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Dict, List, Optional, Tuple, Set, Callable
 from dataclasses import dataclass
 from copy import deepcopy
+
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+    tqdm = None
 
 from ..pob.codec import encode_pob_code, decode_pob_code
 from ..pob.modifier import modify_passive_tree_nodes, get_passive_tree_summary
 from ..pob.relative_calculator import RelativeCalculator, RelativeEvaluation
+from ..pob.batch_calculator import BatchCalculator
 from ..pob.mastery_optimizer import (
     get_mastery_database,
     MasteryOptimizer,
@@ -49,6 +59,28 @@ from ..pob.jewel.registry import JewelRegistry
 from ..pob.jewel.cluster import is_cluster_node_id
 
 logger = logging.getLogger(__name__)
+
+
+def _evaluate_individual(args: Tuple[int, str, str, str]) -> Tuple[int, Optional[RelativeEvaluation]]:
+    """
+    Evaluate a single individual (for parallel execution).
+
+    This is a module-level function to enable pickling for ProcessPoolExecutor.
+
+    Args:
+        args: Tuple of (individual_id, baseline_xml, individual_xml, objective)
+
+    Returns:
+        Tuple of (individual_id, evaluation_result or None if failed)
+    """
+    individual_id, baseline_xml, individual_xml, objective = args
+    try:
+        calculator = RelativeCalculator()
+        eval_result = calculator.evaluate_modification(baseline_xml, individual_xml)
+        return (individual_id, eval_result)
+    except Exception as e:
+        logger.debug(f"Failed to evaluate individual {individual_id}: {e}")
+        return (individual_id, None)
 
 
 @dataclass
@@ -126,6 +158,10 @@ class Population:
         individuals: List[Individual],
         baseline_xml: str,
         calculator: RelativeCalculator,
+        batch_calculator: Optional[BatchCalculator] = None,
+        max_workers: int = 1,
+        use_batch_evaluation: bool = False,
+        show_progress: bool = True,
     ):
         """
         Initialize population.
@@ -134,10 +170,18 @@ class Population:
             individuals: List of individuals in population
             baseline_xml: Original build XML for fitness comparison
             calculator: Calculator for evaluating fitness
+            batch_calculator: Optional batch calculator for faster evaluation
+            max_workers: Number of parallel workers for evaluation
+            use_batch_evaluation: If True, use batch calculator
+            show_progress: If True, show progress bars during evaluation
         """
         self.individuals = individuals
         self.baseline_xml = baseline_xml
         self.calculator = calculator
+        self.batch_calculator = batch_calculator
+        self.max_workers = max_workers
+        self.use_batch_evaluation = use_batch_evaluation
+        self.show_progress = show_progress and TQDM_AVAILABLE
         self.generation = 0
         self._next_id = 0
 
@@ -145,37 +189,131 @@ class Population:
         """
         Evaluate fitness for all individuals in population.
 
+        Supports three evaluation modes:
+        1. Batch evaluation (fastest) - uses persistent worker pool
+        2. Parallel evaluation - uses ProcessPoolExecutor
+        3. Sequential evaluation - single-threaded
+
         Args:
             objective: Optimization objective ('dps', 'life', 'ehp', 'balanced')
         """
-        logger.info(f"Evaluating fitness for {len(self.individuals)} individuals...")
+        num_individuals = len(self.individuals)
+        logger.info(f"Evaluating fitness for {num_individuals} individuals...")
 
+        # Create progress bar for evaluation
+        eval_pbar = None
+        if self.show_progress:
+            eval_pbar = tqdm(
+                total=num_individuals,
+                desc="  Evaluating population",
+                unit="ind",
+                leave=False,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
+            )
+
+        if self.use_batch_evaluation and self.batch_calculator:
+            # Batch evaluation using persistent worker pool (fastest)
+            self._evaluate_batch(objective, eval_pbar)
+        elif self.max_workers > 1:
+            # Parallel evaluation using ProcessPoolExecutor
+            self._evaluate_parallel(objective, eval_pbar)
+        else:
+            # Sequential evaluation
+            self._evaluate_sequential(objective, eval_pbar)
+
+        if eval_pbar:
+            eval_pbar.close()
+
+    def _calculate_fitness(self, eval_result: RelativeEvaluation, objective: str) -> float:
+        """Calculate fitness score from evaluation result."""
+        if objective == 'dps':
+            return eval_result.dps_change_percent
+        elif objective == 'life':
+            return eval_result.life_change_percent
+        elif objective == 'ehp':
+            return eval_result.ehp_change_percent
+        elif objective == 'balanced':
+            return (
+                eval_result.dps_change_percent +
+                eval_result.life_change_percent +
+                eval_result.ehp_change_percent
+            ) / 3
+        else:
+            raise ValueError(f"Unknown objective: {objective}")
+
+    def _evaluate_sequential(self, objective: str, pbar=None) -> None:
+        """Evaluate all individuals sequentially."""
         for individual in self.individuals:
-            # Evaluate against baseline
             eval_result = self.calculator.evaluate_modification(
                 self.baseline_xml,
                 individual.xml
             )
-
-            # Calculate fitness based on objective
-            if objective == 'dps':
-                fitness = eval_result.dps_change_percent
-            elif objective == 'life':
-                fitness = eval_result.life_change_percent
-            elif objective == 'ehp':
-                fitness = eval_result.ehp_change_percent
-            elif objective == 'balanced':
-                # Balanced: average of all three
-                fitness = (
-                    eval_result.dps_change_percent +
-                    eval_result.life_change_percent +
-                    eval_result.ehp_change_percent
-                ) / 3
-            else:
-                raise ValueError(f"Unknown objective: {objective}")
-
-            individual.fitness = fitness
+            individual.fitness = self._calculate_fitness(eval_result, objective)
             individual.fitness_details = eval_result
+            if pbar:
+                pbar.update(1)
+
+    def _evaluate_parallel(self, objective: str, pbar=None) -> None:
+        """Evaluate all individuals in parallel using ProcessPoolExecutor."""
+        # Build evaluation args
+        eval_args = [
+            (i, self.baseline_xml, ind.xml, objective)
+            for i, ind in enumerate(self.individuals)
+        ]
+
+        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(_evaluate_individual, args): args[0]
+                for args in eval_args
+            }
+
+            for future in as_completed(futures):
+                idx = futures[future]
+                try:
+                    result_idx, eval_result = future.result()
+                    if eval_result is not None:
+                        individual = self.individuals[result_idx]
+                        individual.fitness = self._calculate_fitness(eval_result, objective)
+                        individual.fitness_details = eval_result
+                    else:
+                        # Failed evaluation - assign very low fitness
+                        self.individuals[idx].fitness = -1000
+                except Exception as e:
+                    logger.debug(f"Exception evaluating individual {idx}: {e}")
+                    self.individuals[idx].fitness = -1000
+
+                if pbar:
+                    pbar.update(1)
+
+    def _evaluate_batch(self, objective: str, pbar=None) -> None:
+        """Evaluate all individuals using batch calculator."""
+        # Build modifications dict
+        modifications = {
+            f"individual_{i}": ind.xml
+            for i, ind in enumerate(self.individuals)
+        }
+
+        try:
+            batch_results = self.batch_calculator.evaluate_batch(
+                self.baseline_xml,
+                modifications
+            )
+
+            for i, ind in enumerate(self.individuals):
+                key = f"individual_{i}"
+                if key in batch_results:
+                    eval_result = batch_results[key]
+                    ind.fitness = self._calculate_fitness(eval_result, objective)
+                    ind.fitness_details = eval_result
+                else:
+                    ind.fitness = -1000  # Failed evaluation
+
+                if pbar:
+                    pbar.update(1)
+
+        except Exception as e:
+            logger.error(f"Batch evaluation failed: {e}, falling back to sequential")
+            self._evaluate_sequential(objective, pbar)
 
     def get_best(self, n: int = 1) -> List[Individual]:
         """Get the n best individuals by fitness."""
@@ -237,6 +375,9 @@ class GeneticTreeOptimizer:
         max_points_change: int = 10,
         optimize_masteries: bool = True,
         optimize_jewel_sockets: bool = False,
+        max_workers: Optional[int] = None,
+        use_batch_evaluation: bool = False,
+        show_progress: bool = True,
     ):
         """
         Initialize genetic algorithm optimizer.
@@ -251,6 +392,9 @@ class GeneticTreeOptimizer:
             max_points_change: Maximum point budget change from original
             optimize_masteries: If True, optimize mastery selections
             optimize_jewel_sockets: If True, include jewel socket swaps in mutations
+            max_workers: Number of parallel workers (None = CPU count)
+            use_batch_evaluation: If True, use persistent worker pool
+            show_progress: If True, show progress bars during evolution
         """
         self.population_size = population_size
         self.generations = generations
@@ -261,10 +405,20 @@ class GeneticTreeOptimizer:
         self.max_points_change = max_points_change
         self.optimize_masteries = optimize_masteries
         self.optimize_jewel_sockets = optimize_jewel_sockets
+        self.max_workers = max_workers if max_workers is not None else os.cpu_count()
+        self.use_batch_evaluation = use_batch_evaluation
+        self.show_progress = show_progress and TQDM_AVAILABLE
 
         # Initialize components
         self.calculator = RelativeCalculator()
         self.tree_graph = load_passive_tree()
+
+        # Initialize batch calculator if using batch evaluation
+        if use_batch_evaluation:
+            logger.info("Using batch evaluation with persistent worker pool")
+            self.batch_calculator = BatchCalculator(num_workers=self.max_workers)
+        else:
+            self.batch_calculator = None
 
         if self.optimize_masteries:
             self.mastery_db = get_mastery_database()
@@ -286,11 +440,12 @@ class GeneticTreeOptimizer:
         # Protected nodes (jewel sockets, cluster nodes) - set during optimize()
         self.protected_nodes: Set[int] = set()
 
+        eval_mode = "batch" if use_batch_evaluation else f"parallel ({self.max_workers} workers)"
         logger.info(
             f"Initialized GeneticTreeOptimizer "
             f"(pop_size={population_size}, generations={generations}, "
             f"mutation_rate={mutation_rate}, crossover_rate={crossover_rate}, "
-            f"optimize_jewel_sockets={optimize_jewel_sockets})"
+            f"optimize_jewel_sockets={optimize_jewel_sockets}, eval_mode={eval_mode})"
         )
 
     def optimize(
@@ -328,6 +483,12 @@ class GeneticTreeOptimizer:
             f"Mutation rate: {self.mutation_rate:.0%}"
         )
 
+        # Start batch calculator if using batch evaluation
+        if self.use_batch_evaluation and self.batch_calculator:
+            logger.info("Starting worker pool...")
+            num_workers = self.batch_calculator.start()
+            logger.info(f"Worker pool ready ({num_workers} workers)")
+
         # Get original tree info
         original_summary = get_passive_tree_summary(build_xml)
         original_nodes = set(original_summary['allocated_nodes'])
@@ -358,11 +519,27 @@ class GeneticTreeOptimizer:
         avg_fitness_history = []
         best_individual_overall = None
 
+        # Create main progress bar for generations
+        gen_pbar = None
+        if self.show_progress:
+            gen_pbar = tqdm(
+                total=self.generations,
+                desc="Evolving",
+                unit="gen",
+                leave=True,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}"
+            )
+            gen_pbar.set_postfix_str("best: +0.00%")
+
         # Evolution loop
         for generation in range(self.generations):
             logger.info(f"\n{'='*60}")
             logger.info(f"Generation {generation + 1}/{self.generations}")
             logger.info(f"{'='*60}")
+
+            # Update progress bar description
+            if gen_pbar:
+                gen_pbar.set_description(f"Gen {generation+1}: evaluating {len(population.individuals)} individuals")
 
             # Evaluate fitness
             population.evaluate_fitness(objective)
@@ -384,8 +561,13 @@ class GeneticTreeOptimizer:
                 generation_best.fitness > best_individual_overall.fitness):
                 best_individual_overall = generation_best
                 logger.info(
-                    f"🎉 New best found! Fitness: {generation_best.fitness:+.2f}%"
+                    f"New best found! Fitness: {generation_best.fitness:+.2f}%"
                 )
+
+            # Update progress bar
+            if gen_pbar:
+                gen_pbar.update(1)
+                gen_pbar.set_postfix_str(f"best: {best_individual_overall.fitness:+.2f}%")
 
             # Check for convergence (optional early stopping)
             if generation > 10:
@@ -396,6 +578,8 @@ class GeneticTreeOptimizer:
                     logger.info(
                         f"Converged: No significant improvement in 10 generations"
                     )
+                    if gen_pbar:
+                        gen_pbar.set_postfix_str(f"converged! best: {best_individual_overall.fitness:+.2f}%")
                     break
 
             # Create next generation
@@ -447,6 +631,10 @@ class GeneticTreeOptimizer:
                 if ind.individual_id == 0:
                     population.assign_id(ind)
 
+        # Close progress bar
+        if gen_pbar:
+            gen_pbar.close()
+
         # Final evaluation
         population.evaluate_fitness(objective)
         final_best = population.get_best(1)[0]
@@ -474,6 +662,25 @@ class GeneticTreeOptimizer:
             avg_fitness_history=avg_fitness_history,
             final_population=population,
         )
+
+    def shutdown(self):
+        """
+        Shutdown the optimizer and release resources.
+
+        Call this when done with optimization if using batch evaluation.
+        """
+        if self.batch_calculator:
+            logger.info("Shutting down batch calculator...")
+            self.batch_calculator.shutdown()
+
+    def __enter__(self):
+        """Context manager support for automatic cleanup."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Shutdown on context manager exit."""
+        self.shutdown()
+        return False
 
     def _initialize_population(
         self,
@@ -525,7 +732,15 @@ class GeneticTreeOptimizer:
             )
             individuals.append(ind)
 
-        population = Population(individuals, baseline_xml, self.calculator)
+        population = Population(
+            individuals,
+            baseline_xml,
+            self.calculator,
+            batch_calculator=self.batch_calculator,
+            max_workers=self.max_workers,
+            use_batch_evaluation=self.use_batch_evaluation,
+            show_progress=self.show_progress,
+        )
 
         # Assign IDs and evaluate
         for ind in individuals:
