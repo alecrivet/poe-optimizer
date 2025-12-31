@@ -1,6 +1,6 @@
 # Path of Exile Build Optimizer
 
-A passive tree optimization tool for Path of Exile that uses genetic algorithms and Path of Building's calculation engine to automatically improve character builds.
+A passive tree optimization tool for Path of Exile that uses Path of Building's calculation engine to automatically improve character builds.
 
 ## Overview
 
@@ -8,11 +8,26 @@ This tool takes a Path of Building export code, analyzes the passive tree, and u
 
 **Key Features:**
 - Uses PoB's real calculation engine (not approximations)
-- Genetic algorithm explores the massive build space intelligently
+- Two optimization algorithms: Greedy (fast) and Genetic (thorough)
+- Parallel evaluation with batch processing for faster optimization
+- Progress bars for real-time optimization visibility
 - Supports timeless jewels, cluster jewels, and unique jewels
 - Protects jewel-modified nodes from optimizer changes
 - CLI tool for scripting and automation
 - Outputs importable PoB codes
+
+## Best Use Case
+
+**This tool is designed for optimizing existing builds, not creating new ones from scratch.**
+
+The optimizer works best when you have:
+- An existing character build with an allocated passive tree
+- A working PoB setup with gear, gems, and configuration
+- A desire to find incremental improvements to your current tree
+
+The algorithms analyze your current node allocations and search for better alternatives by adding, removing, or swapping nodes while maintaining tree connectivity.
+
+**Note:** The tool has not been tested or validated with empty/minimal passive trees as a starting point. Starting from scratch would require exploring an exponentially larger search space and may not produce meaningful results. For new builds, we recommend using existing build guides or PoB's manual planning, then using this tool to fine-tune the result.
 
 ## Installation
 
@@ -120,17 +135,22 @@ poe-optimizer optimize build.xml \
 
 ### Optimization Algorithms
 
-**Genetic Algorithm (default)**
-- Population-based evolution (30 individuals, 50 generations)
-- Crossover and mutation operators respect tree connectivity
-- Discovers non-obvious node combinations
-- Typical runtime: 5-15 minutes
+**Greedy Optimizer (recommended)**
+- Iterative local search that evaluates all candidate modifications each round
+- Analyzes each node's marginal impact and picks the best improvement
+- Supports parallel evaluation across multiple CPU cores
+- Batch evaluation mode with persistent worker pool for ~2x speedup
+- Progress bars show real-time optimization status
+- Best for reliable, incremental improvements
+- Typical runtime: 5-10 minutes (with batch evaluation)
 
-**Greedy Optimizer (fast)**
-- Iterative local search
-- Analyzes each node's marginal impact
-- Best for quick improvements
-- Typical runtime: 1-3 minutes
+**Genetic Algorithm (experimental)**
+- Population-based evolution (configurable population/generations)
+- Crossover and mutation operators respect tree connectivity
+- Explores broader search space, may find non-obvious combinations
+- Supports parallel/batch evaluation like greedy optimizer
+- Better for exploring alternative solutions
+- Typical runtime: 2-5 minutes (faster but may find different local optima)
 
 ## Jewel Support
 
@@ -156,6 +176,23 @@ The optimizer understands Path of Exile's jewel mechanics:
 poe-optimizer jewels build.xml --json
 ```
 
+## Utility Scripts
+
+The `scripts/` directory contains useful utilities:
+
+```bash
+# Compare greedy vs genetic optimizer performance
+python scripts/compare_optimizers.py
+
+# Quick genetic optimizer test
+python scripts/test_genetic_optimizer.py
+
+# Benchmark batch evaluation
+python scripts/benchmark_batch_evaluation.py
+```
+
+All optimization scripts automatically save results to the `output/` directory with timestamps, including both XML files and PoB import codes.
+
 ## Project Structure
 
 ```
@@ -168,17 +205,18 @@ poe-optimizer/
 │   │   ├── jewel/              # Jewel parsing (timeless, cluster, unique)
 │   │   ├── codec.py            # PoB code encode/decode
 │   │   ├── caller.py           # Python → Lua bridge
+│   │   ├── worker_pool.py      # Persistent Lua worker pool for batch eval
 │   │   ├── tree_parser.py      # Passive tree graph
 │   │   └── modifier.py         # Build modification
 │   ├── optimizer/              # Optimization algorithms
-│   │   ├── genetic_optimizer.py
-│   │   ├── tree_optimizer.py   # Greedy optimizer
+│   │   ├── genetic_optimizer.py  # Genetic algorithm with parallel eval
+│   │   ├── tree_optimizer.py     # Greedy optimizer with batch eval
 │   │   └── multi_objective_optimizer.py
 │   └── visualization/          # Plotting and analysis
 ├── PathOfBuilding/             # PoB submodule (calculation engine)
 ├── scripts/                    # Utility scripts
 ├── tests/                      # Test suite
-└── examples/                   # Example builds and workflows
+└── output/                     # Optimization results (auto-generated)
 ```
 
 ## Development
@@ -200,17 +238,20 @@ isort src/ tests/
 
 ## Limitations
 
+- **Existing Builds Only:** Designed for optimizing existing builds; not tested with empty trees
 - **Items/Gems:** Currently fixed; optimizer only modifies passive tree
 - **Keystones:** May produce invalid builds if keystones conflict
 - **Ascendancy:** Not currently optimized
-- **Accuracy:** ~5-10% variance from PoB due to calculation method
+- **Mastery Selection:** Basic mastery optimization available but not exhaustive
+- **Jewel Socket Optimization:** Can swap jewel locations but doesn't optimize jewel contents
 
 ## Roadmap
 
 - [x] **v0.4** - Genetic algorithm, multi-objective optimization
 - [x] **v0.5** - Desktop GUI (shelved, see `feature/gui-development`)
 - [x] **v0.6** - Jewel support and CLI tool
-- [ ] **v0.7** - Performance optimization, expanded test coverage
+- [x] **v0.7** - Parallel/batch evaluation, progress bars, performance optimization
+- [ ] **v0.8** - Expanded jewel optimization, better mastery handling
 - [ ] **v1.0** - Item optimization, gem links, production ready
 
 ## Contributing
