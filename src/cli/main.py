@@ -22,11 +22,11 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from .commands import optimize, analyze, diff, jewels, codec, setup
+from .commands import optimize, analyze, diff, jewels, codec, setup, account
 
 
 # Version from package or fallback
-VERSION = "0.6.0-dev"
+VERSION = "0.9.0-dev"
 
 
 class AliasedGroup(click.Group):
@@ -40,6 +40,8 @@ class AliasedGroup(click.Group):
             "compare": "diff",
             "enc": "encode",
             "dec": "decode",
+            "acc": "account",
+            "import": "account",
         }
         cmd_name = aliases.get(cmd_name, cmd_name)
         return super().get_command(ctx, cmd_name)
@@ -86,6 +88,7 @@ cli.add_command(jewels.jewels)
 cli.add_command(codec.encode)
 cli.add_command(codec.decode)
 cli.add_command(setup.setup)
+cli.add_command(account.account)
 
 
 def main():
