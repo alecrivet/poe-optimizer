@@ -26,7 +26,7 @@ from .commands import optimize, analyze, diff, jewels, codec, setup, account
 
 
 # Version from package or fallback
-VERSION = "0.9.0-dev"
+VERSION = "0.9.0"
 
 
 class AliasedGroup(click.Group):
