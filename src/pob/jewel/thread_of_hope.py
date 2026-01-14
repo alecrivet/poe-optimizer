@@ -296,5 +296,4 @@ class ThreadOfHopeOptimizer:
                 if node:
                     lines.append(f"    - {node.name} ({keystone_id})")
 
-        return "
-".join(lines)
+        return "\n".join(lines)

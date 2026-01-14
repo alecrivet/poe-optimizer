@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "poe-optimizer"
-version = "0.6.0-dev"
+version = "0.8.0"
 description = "Path of Exile Build Optimizer - Optimize passive trees using PoB calculations"
 readme = "README.md"
 license = {text = "MIT"}

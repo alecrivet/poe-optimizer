@@ -42,7 +42,14 @@ from ..pob.mastery_optimizer import (
     MasteryOptimizer,
     MasteryDatabase,
 )
+from ..pob.build_context import BuildContext
 from ..pob.tree_parser import load_passive_tree, PassiveTreeGraph
+from ..pob.tree_positions import TreePositionLoader
+from ..pob.jewel.radius_calculator import RadiusCalculator
+from ..pob.jewel.thread_of_hope import ThreadOfHopeOptimizer, ThreadOfHopePlacement
+from ..pob.jewel.cluster_optimizer import ClusterNotableOptimizer
+from ..pob.jewel.cluster_subgraph import ClusterSubgraph, ClusterSubgraphBuilder
+from ..pob.jewel.registry import JewelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +122,7 @@ class GreedyTreeOptimizer:
         optimize_masteries: bool = True,  # Enable mastery optimization
         enable_node_addition: bool = True,  # Enable adding nodes to tree
         optimize_jewel_sockets: bool = False,  # Enable jewel socket swapping
+        allow_cluster_optimization: bool = False,  # Enable cluster jewel reallocation
         max_workers: Optional[int] = None,  # Parallel workers (None = CPU count)
         use_batch_evaluation: bool = False,  # EXPERIMENTAL: Use persistent worker pool
         show_progress: bool = True,  # Show progress bars during optimization
@@ -129,6 +137,8 @@ class GreedyTreeOptimizer:
             optimize_masteries: If True, optimize mastery effect selections
             enable_node_addition: If True, try adding nodes (requires tree graph)
             optimize_jewel_sockets: If True, try swapping jewels between sockets
+            allow_cluster_optimization: If True, allow reallocating nodes within
+                                        cluster jewel subgraphs
             max_workers: Number of parallel workers for evaluation.
                          None = use CPU count, 1 = sequential (no parallelism)
             use_batch_evaluation: EXPERIMENTAL - If True, use persistent worker pool.
@@ -140,6 +150,7 @@ class GreedyTreeOptimizer:
         self.optimize_masteries = optimize_masteries
         self.enable_node_addition = enable_node_addition
         self.optimize_jewel_sockets = optimize_jewel_sockets
+        self.allow_cluster_optimization = allow_cluster_optimization
         self.max_workers = max_workers if max_workers is not None else os.cpu_count()
         self.use_batch_evaluation = use_batch_evaluation
         self.show_progress = show_progress and TQDM_AVAILABLE
@@ -181,9 +192,38 @@ class GreedyTreeOptimizer:
             logger.info("Initializing jewel socket optimizer...")
             self.socket_discovery = SocketDiscovery(self.tree_graph)
             self.socket_validator = JewelConstraintValidator(self.tree_graph, self.socket_discovery)
+
+            # Initialize Thread of Hope optimizer
+            try:
+                logger.info("Initializing Thread of Hope optimizer...")
+                position_loader = TreePositionLoader()
+                positions = position_loader.load_positions()
+                self.radius_calculator = RadiusCalculator(positions)
+                self.thread_of_hope_optimizer = ThreadOfHopeOptimizer(
+                    self.radius_calculator, self.tree_graph
+                )
+                logger.info(f"Thread of Hope optimizer ready ({len(positions)} node positions)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Thread of Hope optimizer: {e}")
+                self.radius_calculator = None
+                self.thread_of_hope_optimizer = None
+
+            # Initialize cluster notable optimizer (if cluster optimization enabled)
+            if self.allow_cluster_optimization:
+                logger.info("Cluster optimization enabled - cluster notables can be reallocated")
+                self.cluster_optimizer = ClusterNotableOptimizer(calculator=None)
+            else:
+                self.cluster_optimizer = None
         else:
             self.socket_discovery = None
             self.socket_validator = None
+            self.radius_calculator = None
+            self.thread_of_hope_optimizer = None
+            self.cluster_optimizer = None
+
+        # Build context for context-aware mastery scoring (set during optimize())
+        self.build_context: Optional[BuildContext] = None
+        self._baseline_xml: Optional[str] = None  # Store for mastery evaluation
 
         logger.info(
             f"Initialized GreedyTreeOptimizer (max_iterations={max_iterations}, "
@@ -211,6 +251,22 @@ class GreedyTreeOptimizer:
             OptimizationResult with optimization details
         """
         logger.info(f"Starting optimization with objective: {objective}")
+
+        # Store baseline XML for mastery evaluation
+        self._baseline_xml = build_xml
+
+        # Extract build context for context-aware mastery scoring
+        if self.optimize_masteries:
+            try:
+                self.build_context = BuildContext.from_build_xml(build_xml)
+                logger.info(
+                    f"Build context: {self.build_context.primary_damage_type} "
+                    f"{self.build_context.attack_or_spell}, "
+                    f"defense: {self.build_context.defense_style}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to extract build context: {e}")
+                self.build_context = None
 
         # Start batch calculator if using batch evaluation
         if self.use_batch_evaluation and self.batch_calculator:
@@ -469,6 +525,9 @@ class GreedyTreeOptimizer:
         """
         Optimize mastery effect selections for a given tree.
 
+        Uses calculator-based evaluation when batch_calculator is available,
+        otherwise falls back to heuristic scoring with build context awareness.
+
         Args:
             xml: Build XML with tree modifications
             objective: Optimization objective
@@ -481,16 +540,38 @@ class GreedyTreeOptimizer:
 
         # Get current tree state
         summary = get_passive_tree_summary(xml)
-        allocated_nodes = summary['allocated_nodes']
+        allocated_nodes = set(summary['allocated_nodes'])
         current_masteries = summary['mastery_effects']
 
         # Select optimal mastery effects
-        optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
-            allocated_nodes=allocated_nodes,
-            current_mastery_effects=current_masteries,
-            objective=objective,
-            calculator=None  # Could pass self.calculator for evaluation
-        )
+        # Priority: batch calculator > regular calculator > heuristics
+        if self.use_batch_evaluation and self.batch_calculator and self._baseline_xml:
+            # Use batch calculator for faster evaluation
+            try:
+                optimal_masteries = self.mastery_optimizer.select_best_mastery_effects_batch(
+                    base_xml=xml,
+                    allocated_nodes=allocated_nodes,
+                    current_effects=current_masteries,
+                    objective=objective,
+                    batch_calculator=self.batch_calculator
+                )
+                logger.debug("Used batch calculator for mastery evaluation")
+            except Exception as e:
+                logger.warning(f"Batch mastery evaluation failed, using heuristics: {e}")
+                optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
+                    allocated_nodes=allocated_nodes,
+                    current_mastery_effects=current_masteries,
+                    objective=objective,
+                    calculator=None
+                )
+        else:
+            # Fall back to heuristic scoring (context-aware if build_context available)
+            optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
+                allocated_nodes=allocated_nodes,
+                current_mastery_effects=current_masteries,
+                objective=objective,
+                calculator=None
+            )
 
         # If masteries changed, apply them
         if optimal_masteries != current_masteries:
@@ -570,6 +651,30 @@ class GreedyTreeOptimizer:
                 candidates.update(jewel_swap_candidates)
             except Exception as e:
                 logger.debug(f"Failed to generate jewel swap candidates: {e}")
+
+            # Try Thread of Hope placement candidates
+            if self.thread_of_hope_optimizer:
+                try:
+                    toh_candidates = self._generate_thread_of_hope_candidates(
+                        current_xml,
+                        allocated_nodes,
+                        objective
+                    )
+                    candidates.update(toh_candidates)
+                except Exception as e:
+                    logger.debug(f"Failed to generate Thread of Hope candidates: {e}")
+
+            # Try cluster notable reallocation candidates
+            if self.cluster_optimizer and self.allow_cluster_optimization:
+                try:
+                    cluster_candidates = self._generate_cluster_candidates(
+                        current_xml,
+                        allocated_nodes,
+                        objective
+                    )
+                    candidates.update(cluster_candidates)
+                except Exception as e:
+                    logger.debug(f"Failed to generate cluster candidates: {e}")
 
         # Try removing each allocated node (one at a time)
         for node_id in list(allocated_nodes)[:20]:  # Limit to first 20 for speed
@@ -848,6 +953,160 @@ class GreedyTreeOptimizer:
 
         except Exception as e:
             logger.debug(f"Error loading jewel registry for swaps: {e}")
+
+        return candidates
+
+    def _generate_thread_of_hope_candidates(
+        self,
+        current_xml: str,
+        allocated_nodes: set,
+        objective: str,
+    ) -> Dict[str, str]:
+        """
+        Generate candidates for Thread of Hope socket placements.
+
+        Analyzes which sockets would benefit most from Thread of Hope
+        and generates candidates with notables allocated via the ring.
+
+        Args:
+            current_xml: Current build XML
+            allocated_nodes: Set of currently allocated node IDs
+            objective: Optimization objective
+
+        Returns:
+            Dict mapping candidate name to modified XML
+        """
+        from ..pob.jewel.registry import JewelRegistry
+
+        candidates = {}
+
+        if not self.thread_of_hope_optimizer:
+            return candidates
+
+        try:
+            # Check if build already has a Thread of Hope
+            registry = JewelRegistry.from_build_xml(current_xml)
+            has_thread = any(
+                j.display_name and "thread of hope" in j.display_name.lower()
+                for j in registry.unique_jewels
+            )
+
+            if not has_thread:
+                # No Thread of Hope in build, skip analysis
+                logger.debug("No Thread of Hope found in build, skipping ToH candidates")
+                return candidates
+
+            # Analyze potential placements for different ring sizes
+            for ring_size in ["Medium", "Large"]:  # Most common sizes
+                placements = self.thread_of_hope_optimizer.find_optimal_placement(
+                    current_xml,
+                    ring_size,
+                    objective="value"
+                )
+
+                # Generate candidates for top 3 placements
+                for placement in placements[:3]:
+                    if placement.notable_count == 0:
+                        continue
+
+                    # Get unallocated notables in ring that we could benefit from
+                    new_notables = placement.ring_notables - allocated_nodes
+
+                    if not new_notables:
+                        continue  # All notables already allocated
+
+                    # Create candidate: add the top notable(s) via Thread of Hope
+                    for notable_id in list(new_notables)[:2]:  # Max 2 per placement
+                        node = self.tree_graph.get_node(notable_id)
+                        if not node:
+                            continue
+
+                        try:
+                            # Add the notable directly (Thread of Hope allows this)
+                            modified_xml = modify_passive_tree_nodes(
+                                current_xml,
+                                nodes_to_add=[notable_id]
+                            )
+
+                            # Optimize masteries
+                            if self.optimize_masteries:
+                                modified_xml = self._optimize_masteries_for_tree(
+                                    modified_xml,
+                                    objective
+                                )
+
+                            candidate_name = (
+                                f"ToH ({ring_size}): allocate {node.name} "
+                                f"via socket {placement.socket_node_id}"
+                            )
+                            candidates[candidate_name] = modified_xml
+
+                        except Exception as e:
+                            logger.debug(f"Failed to create ToH candidate: {e}")
+
+        except Exception as e:
+            logger.debug(f"Error generating Thread of Hope candidates: {e}")
+
+        return candidates
+
+    def _generate_cluster_candidates(
+        self,
+        current_xml: str,
+        allocated_nodes: set,
+        objective: str,
+    ) -> Dict[str, str]:
+        """
+        Generate candidates for cluster notable reallocation.
+
+        Analyzes cluster jewel subgraphs and generates candidates that
+        add or swap notables within clusters.
+
+        Args:
+            current_xml: Current build XML
+            allocated_nodes: Set of currently allocated node IDs
+            objective: Optimization objective
+
+        Returns:
+            Dict mapping candidate name to modified XML
+        """
+        candidates = {}
+
+        if not self.cluster_optimizer or not self.allow_cluster_optimization:
+            return candidates
+
+        try:
+            # Get jewel registry and cluster subgraphs
+            registry = JewelRegistry.from_build_xml(current_xml)
+
+            if not registry.has_cluster_jewels():
+                return candidates
+
+            # Build subgraphs for each cluster jewel
+            subgraphs = registry.get_cluster_subgraphs(allocated_nodes)
+
+            for subgraph in subgraphs:
+                # Generate candidates using the cluster optimizer
+                try:
+                    cluster_candidates = self.cluster_optimizer.generate_candidates(
+                        subgraph,
+                        current_xml,
+                        objective
+                    )
+
+                    # Optimize masteries for each cluster candidate
+                    for name, modified_xml in cluster_candidates.items():
+                        if self.optimize_masteries:
+                            modified_xml = self._optimize_masteries_for_tree(
+                                modified_xml,
+                                objective
+                            )
+                        candidates[name] = modified_xml
+
+                except Exception as e:
+                    logger.debug(f"Failed to generate candidates for cluster: {e}")
+
+        except Exception as e:
+            logger.debug(f"Error generating cluster candidates: {e}")
 
         return candidates
 

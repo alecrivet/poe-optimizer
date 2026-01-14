@@ -54,9 +54,15 @@ from ..pob.mastery_optimizer import (
     MasteryOptimizer,
     MasteryDatabase,
 )
+from ..pob.build_context import BuildContext
 from ..pob.tree_parser import load_passive_tree, PassiveTreeGraph
+from ..pob.tree_positions import TreePositionLoader
 from ..pob.jewel.registry import JewelRegistry
 from ..pob.jewel.cluster import is_cluster_node_id
+from ..pob.jewel.radius_calculator import RadiusCalculator
+from ..pob.jewel.thread_of_hope import ThreadOfHopeOptimizer
+from ..pob.jewel.cluster_optimizer import ClusterNotableOptimizer
+from ..pob.jewel.cluster_subgraph import ClusterSubgraph
 
 logger = logging.getLogger(__name__)
 
@@ -375,6 +381,7 @@ class GeneticTreeOptimizer:
         max_points_change: int = 10,
         optimize_masteries: bool = True,
         optimize_jewel_sockets: bool = False,
+        allow_cluster_optimization: bool = False,
         max_workers: Optional[int] = None,
         use_batch_evaluation: bool = False,
         show_progress: bool = True,
@@ -392,6 +399,8 @@ class GeneticTreeOptimizer:
             max_points_change: Maximum point budget change from original
             optimize_masteries: If True, optimize mastery selections
             optimize_jewel_sockets: If True, include jewel socket swaps in mutations
+            allow_cluster_optimization: If True, allow reallocating nodes within
+                                        cluster jewel subgraphs
             max_workers: Number of parallel workers (None = CPU count)
             use_batch_evaluation: If True, use persistent worker pool
             show_progress: If True, show progress bars during evolution
@@ -405,6 +414,7 @@ class GeneticTreeOptimizer:
         self.max_points_change = max_points_change
         self.optimize_masteries = optimize_masteries
         self.optimize_jewel_sockets = optimize_jewel_sockets
+        self.allow_cluster_optimization = allow_cluster_optimization
         self.max_workers = max_workers if max_workers is not None else os.cpu_count()
         self.use_batch_evaluation = use_batch_evaluation
         self.show_progress = show_progress and TQDM_AVAILABLE
@@ -433,12 +443,41 @@ class GeneticTreeOptimizer:
             logger.info("Initializing jewel socket optimizer...")
             self.socket_discovery = SocketDiscovery(self.tree_graph)
             self.socket_validator = JewelConstraintValidator(self.tree_graph, self.socket_discovery)
+
+            # Initialize Thread of Hope optimizer
+            try:
+                logger.info("Initializing Thread of Hope optimizer...")
+                position_loader = TreePositionLoader()
+                positions = position_loader.load_positions()
+                self.radius_calculator = RadiusCalculator(positions)
+                self.thread_of_hope_optimizer = ThreadOfHopeOptimizer(
+                    self.radius_calculator, self.tree_graph
+                )
+                logger.info(f"Thread of Hope optimizer ready ({len(positions)} node positions)")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Thread of Hope optimizer: {e}")
+                self.radius_calculator = None
+                self.thread_of_hope_optimizer = None
+
+            # Initialize cluster notable optimizer (if cluster optimization enabled)
+            if self.allow_cluster_optimization:
+                logger.info("Cluster optimization enabled - cluster notables can be reallocated")
+                self.cluster_optimizer = ClusterNotableOptimizer(calculator=None)
+            else:
+                self.cluster_optimizer = None
         else:
             self.socket_discovery = None
             self.socket_validator = None
+            self.radius_calculator = None
+            self.thread_of_hope_optimizer = None
+            self.cluster_optimizer = None
 
         # Protected nodes (jewel sockets, cluster nodes) - set during optimize()
         self.protected_nodes: Set[int] = set()
+
+        # Build context for context-aware mastery scoring (set during optimize())
+        self.build_context: Optional[BuildContext] = None
+        self._baseline_xml: Optional[str] = None  # Store for mastery evaluation
 
         eval_mode = "batch" if use_batch_evaluation else f"parallel ({self.max_workers} workers)"
         logger.info(
@@ -482,6 +521,22 @@ class GeneticTreeOptimizer:
             f"Generations: {self.generations}, "
             f"Mutation rate: {self.mutation_rate:.0%}"
         )
+
+        # Store baseline XML for mastery evaluation
+        self._baseline_xml = build_xml
+
+        # Extract build context for context-aware mastery scoring
+        if self.optimize_masteries:
+            try:
+                self.build_context = BuildContext.from_build_xml(build_xml)
+                logger.info(
+                    f"Build context: {self.build_context.primary_damage_type} "
+                    f"{self.build_context.attack_or_spell}, "
+                    f"defense: {self.build_context.defense_style}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to extract build context: {e}")
+                self.build_context = None
 
         # Start batch calculator if using batch evaluation
         if self.use_batch_evaluation and self.batch_calculator:
@@ -804,6 +859,78 @@ class GeneticTreeOptimizer:
             elif action == 'mastery' and self.optimize_masteries:
                 # Change random mastery selection
                 xml = self._randomize_one_mastery(xml, objective)
+
+        return xml
+
+    def _optimize_masteries_for_tree(
+        self,
+        xml: str,
+        objective: str
+    ) -> str:
+        """
+        Optimize mastery effect selections for a given tree.
+
+        Uses calculator-based evaluation when batch_calculator is available,
+        otherwise falls back to heuristic scoring.
+
+        Args:
+            xml: Build XML with tree modifications
+            objective: Optimization objective
+
+        Returns:
+            XML with optimized mastery selections
+        """
+        if not self.optimize_masteries or not self.mastery_optimizer:
+            return xml
+
+        # Get current tree state
+        summary = get_passive_tree_summary(xml)
+        allocated_nodes = set(summary['allocated_nodes'])
+        current_masteries = summary['mastery_effects']
+
+        # Select optimal mastery effects
+        # Priority: batch calculator > heuristics
+        if self.use_batch_evaluation and self.batch_calculator and self._baseline_xml:
+            try:
+                optimal_masteries = self.mastery_optimizer.select_best_mastery_effects_batch(
+                    base_xml=xml,
+                    allocated_nodes=allocated_nodes,
+                    current_effects=current_masteries,
+                    objective=objective,
+                    batch_calculator=self.batch_calculator
+                )
+                logger.debug("Used batch calculator for mastery evaluation")
+            except Exception as e:
+                logger.warning(f"Batch mastery evaluation failed, using heuristics: {e}")
+                optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
+                    allocated_nodes=allocated_nodes,
+                    current_mastery_effects=current_masteries,
+                    objective=objective,
+                    calculator=None
+                )
+        else:
+            optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
+                allocated_nodes=allocated_nodes,
+                current_mastery_effects=current_masteries,
+                objective=objective,
+                calculator=None
+            )
+
+        # If masteries changed, apply them
+        if optimal_masteries != current_masteries:
+            changed_count = sum(
+                1 for node_id in optimal_masteries
+                if optimal_masteries.get(node_id) != current_masteries.get(node_id)
+            )
+
+            if changed_count > 0:
+                logger.debug(f"Optimized {changed_count} mastery selections")
+                xml = modify_passive_tree_nodes(
+                    xml,
+                    nodes_to_add=[],
+                    nodes_to_remove=[],
+                    mastery_effects_to_add=optimal_masteries
+                )
 
         return xml
 
@@ -1168,6 +1295,124 @@ class GeneticTreeOptimizer:
 
         return xml
 
+    def _mutate_thread_of_hope(self, xml: str, allocated_nodes: Set[int]) -> str:
+        """
+        Mutate by allocating a node via Thread of Hope ring.
+
+        This mutation adds a notable that is within a Thread of Hope ring
+        but would normally be too expensive to path to.
+
+        Args:
+            xml: Current build XML
+            allocated_nodes: Currently allocated node IDs
+
+        Returns:
+            Modified build XML
+        """
+        if not self.thread_of_hope_optimizer:
+            return xml
+
+        try:
+            registry = JewelRegistry.from_build_xml(xml)
+
+            # Check if build has Thread of Hope
+            has_thread = any(
+                j.display_name and "thread of hope" in j.display_name.lower()
+                for j in registry.unique_jewels
+            )
+
+            if not has_thread:
+                return xml  # No Thread of Hope in build
+
+            # Pick a random ring size
+            ring_size = random.choice(["Small", "Medium", "Large", "Very Large"])
+
+            # Get placements for this ring size
+            placements = self.thread_of_hope_optimizer.find_optimal_placement(
+                xml, ring_size, objective="value"
+            )
+
+            if not placements:
+                return xml
+
+            # Pick a random placement with unallocated notables
+            random.shuffle(placements)
+
+            for placement in placements:
+                new_notables = placement.ring_notables - allocated_nodes
+                if new_notables:
+                    # Pick a random unallocated notable in the ring
+                    notable_id = random.choice(list(new_notables))
+                    node = self.tree_graph.get_node(notable_id)
+
+                    if node and not node.is_mastery:
+                        # Allocate the notable via Thread of Hope
+                        return modify_passive_tree_nodes(
+                            xml,
+                            nodes_to_add=[notable_id]
+                        )
+
+        except Exception as e:
+            logger.debug(f"Thread of Hope mutation failed: {e}")
+
+        return xml
+
+    def _mutate_cluster_notable(self, xml: str, allocated_nodes: Set[int]) -> str:
+        """
+        Mutate by adding or swapping a cluster notable.
+
+        This mutation adds an unallocated notable in a cluster jewel's
+        subgraph, which can improve the cluster jewel's effectiveness.
+
+        Args:
+            xml: Current build XML
+            allocated_nodes: Currently allocated node IDs
+
+        Returns:
+            Modified build XML
+        """
+        if not self.cluster_optimizer or not self.allow_cluster_optimization:
+            return xml
+
+        try:
+            registry = JewelRegistry.from_build_xml(xml)
+
+            if not registry.has_cluster_jewels():
+                return xml
+
+            # Get cluster subgraphs
+            subgraphs = registry.get_cluster_subgraphs(allocated_nodes)
+
+            if not subgraphs:
+                return xml
+
+            # Pick a random cluster subgraph
+            subgraph = random.choice(subgraphs)
+
+            # Find unallocated notables in this cluster
+            unallocated_notables = set(subgraph.notables) - allocated_nodes
+
+            if not unallocated_notables:
+                return xml  # All notables already allocated
+
+            # Pick a random unallocated notable
+            notable_id = random.choice(list(unallocated_notables))
+
+            # Get the minimum allocation needed to reach this notable
+            needed_nodes = subgraph.get_minimum_allocation({notable_id})
+            nodes_to_add = list(needed_nodes - allocated_nodes)
+
+            if nodes_to_add:
+                return modify_passive_tree_nodes(
+                    xml,
+                    nodes_to_add=nodes_to_add
+                )
+
+        except Exception as e:
+            logger.debug(f"Cluster notable mutation failed: {e}")
+
+        return xml
+
     def _mutate(
         self,
         individual: Individual,
@@ -1186,6 +1431,8 @@ class GeneticTreeOptimizer:
         4. Swap jewel sockets (if jewel optimization enabled)
         5. Move jewel to empty socket (if jewel optimization enabled)
         6. Remove jewel entirely (if jewel optimization enabled)
+        7. Allocate node via Thread of Hope ring (if Thread of Hope present)
+        8. Add cluster notable (if cluster optimization enabled)
 
         Example:
         Original: [A, B, C, D] with mastery {M1: 5}
@@ -1203,6 +1450,10 @@ class GeneticTreeOptimizer:
         mutation_types = ['add', 'remove', 'mastery']
         if self.optimize_jewel_sockets:
             mutation_types.extend(['jewel_swap', 'jewel_move', 'jewel_removal'])
+        if self.thread_of_hope_optimizer:
+            mutation_types.append('thread_of_hope')
+        if self.cluster_optimizer and self.allow_cluster_optimization:
+            mutation_types.append('cluster_notable')
 
         mutation_type = random.choice(mutation_types)
 
@@ -1266,6 +1517,20 @@ class GeneticTreeOptimizer:
             xml = self._mutate_jewel_removal(xml)
             if xml != original_xml:
                 logger.debug("Mutation: Removed jewel")
+
+        elif mutation_type == 'thread_of_hope' and self.thread_of_hope_optimizer:
+            # Allocate a node via Thread of Hope ring
+            original_xml = xml
+            xml = self._mutate_thread_of_hope(xml, current_nodes)
+            if xml != original_xml:
+                logger.debug("Mutation: Added node via Thread of Hope")
+
+        elif mutation_type == 'cluster_notable' and self.cluster_optimizer:
+            # Add or swap a cluster notable
+            original_xml = xml
+            xml = self._mutate_cluster_notable(xml, current_nodes)
+            if xml != original_xml:
+                logger.debug("Mutation: Modified cluster notable allocation")
 
         # Create mutated individual (keep same generation and parent IDs)
         mutated = Individual(
