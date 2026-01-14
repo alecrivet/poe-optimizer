@@ -29,6 +29,8 @@ from .base import BaseJewel, JewelCategory, JewelRadius
 
 if TYPE_CHECKING:
     from ..tree_parser import PassiveTreeGraph
+    from .timeless_value import TimelessValueCalculator, TimelessSocketAnalysis
+    from .timeless_data import TimelessJewelDataLoader, TimelessTransformation
 
 
 # Timeless jewel type definitions
@@ -127,6 +129,97 @@ class TimelessJewel(BaseJewel):
             ("Brutal Restraint", "Nasima"): "Second Skin",
         }
         return keystones.get((self.jewel_type, self.variant))
+
+    def get_socket_recommendations(
+        self,
+        build_xml: str,
+        objective: str,
+        value_calc: "TimelessValueCalculator",
+        top_n: int = 5
+    ) -> List["TimelessSocketAnalysis"]:
+        """
+        Get recommended sockets for this jewel.
+
+        Analyzes all available jewel sockets in the build and returns
+        the top N sockets ranked by value for the given objective.
+
+        Args:
+            build_xml: The PoB build XML string
+            objective: Optimization objective (DPS, Life, EHP)
+            value_calc: The value calculator instance
+            top_n: Number of top sockets to return
+
+        Returns:
+            List of TimelessSocketAnalysis objects, sorted by value
+        """
+        # Extract allocated nodes from build
+        allocated_nodes = _extract_allocated_nodes(build_xml)
+
+        # Get all jewel socket IDs from the tree
+        socket_ids = _get_jewel_socket_ids(value_calc.tree)
+
+        if not socket_ids:
+            return []
+
+        # Compare all sockets
+        analyses = value_calc.compare_sockets(
+            self, socket_ids, allocated_nodes, objective
+        )
+
+        return analyses[:top_n]
+
+    def get_current_value(
+        self,
+        build_xml: str,
+        objective: str,
+        value_calc: "TimelessValueCalculator"
+    ) -> Optional["TimelessSocketAnalysis"]:
+        """
+        Get analysis of current socket placement.
+
+        Analyzes the jewel at its current socket (if socketed) and
+        returns the value analysis.
+
+        Args:
+            build_xml: The PoB build XML string
+            objective: Optimization objective (DPS, Life, EHP)
+            value_calc: The value calculator instance
+
+        Returns:
+            TimelessSocketAnalysis for current socket, or None if not socketed
+        """
+        if not self.socket_node_id:
+            return None
+
+        # Extract allocated nodes from build
+        allocated_nodes = _extract_allocated_nodes(build_xml)
+
+        return value_calc.analyze_socket(
+            self, self.socket_node_id, allocated_nodes, objective
+        )
+
+    def get_transformations(
+        self,
+        node_ids: Set[int],
+        data_loader: Optional["TimelessJewelDataLoader"] = None
+    ) -> Dict[int, "TimelessTransformation"]:
+        """
+        Get transformations for specific nodes with this jewel's seed.
+
+        Args:
+            node_ids: Set of node IDs to get transformations for
+            data_loader: Optional data loader (uses default if not provided)
+
+        Returns:
+            Dict mapping node_id -> transformation
+        """
+        if data_loader is None:
+            from .timeless_data import get_default_loader
+            data_loader = get_default_loader()
+
+        return data_loader.get_transformations(
+            self.jewel_type, self.seed, node_ids
+        )
 
 
 def parse_timeless_jewels(build_xml: str) -> List[TimelessJewel]:
@@ -305,19 +398,88 @@ def get_timeless_jewel_modifiers(
     """
     Get the modifiers applied to a node by a timeless jewel.
 
-    This requires loading PoB's timeless jewel data files.
+    Uses the timeless jewel data loader to look up transformations.
 
     Args:
         jewel: The timeless jewel
         node_id: The passive node ID to query
-        pob_path: Path to PathOfBuilding directory
+        pob_path: Path to PathOfBuilding directory (optional)
 
     Returns:
         List of modifier strings applied to the node
     """
-    # TODO: Implement using PoB's TimelessJewelData
-    # This will be implemented in Phase 2
-    return []
+    from .timeless_data import TimelessJewelDataLoader, get_default_loader
+
+    if pob_path:
+        loader = TimelessJewelDataLoader(pob_path)
+    else:
+        loader = get_default_loader()
+
+    transformations = loader.get_transformations(
+        jewel.jewel_type, jewel.seed, {node_id}
+    )
+
+    if node_id not in transformations:
+        return []
+
+    transform = transformations[node_id]
+    return [mod.stat_text for mod in transform.mods]
+
+
+def _extract_allocated_nodes(build_xml: str) -> Set[int]:
+    """
+    Extract allocated passive node IDs from build XML.
+
+    Args:
+        build_xml: The PoB build XML string
+
+    Returns:
+        Set of allocated node IDs
+    """
+    allocated = set()
+
+    try:
+        root = ET.fromstring(build_xml)
+
+        # Look for Spec element with nodes attribute
+        for spec in root.findall(".//Spec"):
+            nodes_str = spec.get("nodes", "")
+            if nodes_str:
+                for node_id in nodes_str.split(","):
+                    node_id = node_id.strip()
+                    if node_id.isdigit():
+                        allocated.add(int(node_id))
+
+        # Also check for Nodes element
+        for nodes_elem in root.findall(".//Nodes"):
+            for node in nodes_elem.findall("Node"):
+                node_id = node.get("id")
+                if node_id and node_id.isdigit():
+                    allocated.add(int(node_id))
+
+    except Exception:
+        pass
+
+    return allocated
+
+
+def _get_jewel_socket_ids(tree: "PassiveTreeGraph") -> Set[int]:
+    """
+    Get all jewel socket node IDs from the passive tree.
+
+    Args:
+        tree: The passive tree graph
+
+    Returns:
+        Set of jewel socket node IDs
+    """
+    socket_ids = set()
+
+    for node_id, node in tree.nodes.items():
+        if node.node_type == "jewel":
+            socket_ids.add(node_id)
+
+    return socket_ids
 
 
 # For testing

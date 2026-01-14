@@ -13,6 +13,7 @@ from typing import List, Set, Optional, Iterator, TYPE_CHECKING
 from .base import BaseJewel, JewelCategory
 from .timeless import TimelessJewel, parse_timeless_jewels
 from .cluster import ClusterJewel, parse_cluster_jewels, is_cluster_node_id
+from .cluster_subgraph import ClusterSubgraph, ClusterSubgraphBuilder
 from .unique import UniqueJewel, parse_unique_jewels
 
 if TYPE_CHECKING:
@@ -108,14 +109,15 @@ class JewelRegistry:
     def get_protected_nodes(
         self,
         allocated_nodes: Optional[Set[int]] = None,
-        protect_empty_sockets: bool = True
+        protect_empty_sockets: bool = True,
+        allow_cluster_optimization: bool = False
     ) -> Set[int]:
         """
         Return all nodes that should not be modified by the optimizer.
 
         Protected nodes include:
         - Jewel socket nodes (for jewels currently socketed, or all if protect_empty_sockets=True)
-        - All cluster jewel generated nodes
+        - All cluster jewel generated nodes (unless allow_cluster_optimization=True)
         - Optionally, nodes from allocated_nodes that are cluster nodes
 
         Args:
@@ -123,6 +125,10 @@ class JewelRegistry:
             protect_empty_sockets: If True, protect all known jewel sockets.
                                    If False, only protect sockets with jewels socketed.
                                    Default is True for backward compatibility.
+            allow_cluster_optimization: If True, only protect cluster socket entry points,
+                                        not all cluster nodes. This allows reallocating
+                                        nodes within cluster subgraphs.
+                                        Default is False for backward compatibility.
 
         Returns:
             Set of protected node IDs
@@ -139,15 +145,22 @@ class JewelRegistry:
         # which sockets are "empty" on the tree (not tracked in registry).
         # For now, we only protect sockets that have jewels.
 
-        # Protect all cluster jewel generated nodes (always)
-        for cluster in self.cluster_jewels:
-            protected.update(cluster.generated_nodes)
+        if allow_cluster_optimization:
+            # Only protect the cluster socket entry points
+            # This allows the optimizer to reallocate nodes within clusters
+            for cluster in self.cluster_jewels:
+                if cluster.socket_node_id:
+                    protected.add(cluster.socket_node_id)
+        else:
+            # Protect all cluster jewel generated nodes (default behavior)
+            for cluster in self.cluster_jewels:
+                protected.update(cluster.generated_nodes)
 
-        # Also protect any cluster nodes from allocated_nodes (always)
-        if allocated_nodes:
-            for node_id in allocated_nodes:
-                if is_cluster_node_id(node_id):
-                    protected.add(node_id)
+            # Also protect any cluster nodes from allocated_nodes
+            if allocated_nodes:
+                for node_id in allocated_nodes:
+                    if is_cluster_node_id(node_id):
+                        protected.add(node_id)
 
         return protected
 
@@ -200,6 +213,30 @@ class JewelRegistry:
     def has_cluster_jewels(self) -> bool:
         """Check if build has any cluster jewels."""
         return len(self.cluster_jewels) > 0
+
+    def get_cluster_subgraphs(self, allocated_nodes: Set[int]) -> List[ClusterSubgraph]:
+        """
+        Get subgraph models for all cluster jewels.
+
+        This method builds ClusterSubgraph models for each cluster jewel
+        in the registry, using the provided allocated nodes to determine
+        the current subgraph structure.
+
+        Args:
+            allocated_nodes: Set of currently allocated node IDs
+
+        Returns:
+            List of ClusterSubgraph models, one per cluster jewel
+        """
+        builder = ClusterSubgraphBuilder()
+        subgraphs = []
+
+        for cluster in self.cluster_jewels:
+            if cluster.socket_node_id:
+                subgraph = builder.build_from_jewel(cluster, allocated_nodes)
+                subgraphs.append(subgraph)
+
+        return subgraphs
 
     def get_summary(self) -> str:
         """Get a summary of jewels in the registry."""

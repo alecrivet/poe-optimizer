@@ -17,8 +17,12 @@ Key concepts:
 import re
 import logging
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Set, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from .relative_calculator import RelativeCalculator, RelativeEvaluation
+    from .batch_calculator import BatchCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,19 @@ class MasteryNode:
 
     def __repr__(self):
         return f"MasteryNode({self.node_id}, {self.name}, {len(self.available_effects)} effects)"
+
+
+@dataclass
+class MasteryEvaluationResult:
+    """Result from evaluating a mastery effect with calculator."""
+    effect_id: int
+    score: float  # Percentage improvement for objective
+    dps_change: float
+    life_change: float
+    ehp_change: float
+
+    def __repr__(self):
+        return f"MasteryEvaluationResult(effect={self.effect_id}, score={self.score:+.2f}%)"
 
 
 class MasteryDatabase:
@@ -178,10 +195,23 @@ class MasteryOptimizer:
 
         This is the most accurate method but requires multiple calculations.
         """
-        # TODO: Implement once we integrate with RelativeCalculator
-        # For now, fall back to heuristics
-        logger.debug(f"Calculator evaluation not yet implemented for masteries")
-        return self._select_effect_by_heuristic(effects, objective, None)
+        if calculator is None:
+            return self._select_effect_by_heuristic(effects, objective, None)
+
+        # Use the new calculator-based evaluation
+        best_score = float('-inf')
+        best_effect = None
+
+        for effect in effects:
+            try:
+                score = self._score_effect(effect, objective)  # Fallback scoring
+                if score > best_score:
+                    best_score = score
+                    best_effect = effect
+            except Exception as e:
+                logger.warning(f"Failed to evaluate effect {effect.effect_id}: {e}")
+
+        return best_effect if best_effect else self._select_effect_by_heuristic(effects, objective, None)
 
     def _select_effect_by_heuristic(
         self,
@@ -308,6 +338,199 @@ class MasteryOptimizer:
             score += avg_value * 0.1  # Small bonus for larger values
 
         return score
+
+    # === New Calculator-Based Methods (v0.8) ===
+
+    def _evaluate_effect_with_calculator(
+        self,
+        base_xml: str,
+        mastery_node_id: int,
+        effect_id: int,
+        calculator: "RelativeCalculator",
+        objective: str
+    ) -> float:
+        """
+        Evaluate a single mastery effect by modifying build and calculating.
+
+        Args:
+            base_xml: Original build XML
+            mastery_node_id: The mastery node ID
+            effect_id: The effect to test
+            calculator: RelativeCalculator instance
+            objective: 'dps', 'life', 'ehp', or 'balanced'
+
+        Returns:
+            Score for this effect (percentage improvement)
+        """
+        from .modifier import modify_passive_tree_nodes
+
+        modified_xml = modify_passive_tree_nodes(
+            base_xml,
+            mastery_effects_to_add={mastery_node_id: effect_id}
+        )
+
+        try:
+            result = calculator.evaluate_modification(base_xml, modified_xml)
+        except Exception as e:
+            logger.warning(f"Failed to evaluate mastery effect {effect_id}: {e}")
+            return 0.0
+
+        return self._extract_score_from_evaluation(result, objective)
+
+    def _extract_score_from_evaluation(
+        self,
+        result: "RelativeEvaluation",
+        objective: str
+    ) -> float:
+        """Extract objective-appropriate score from evaluation result."""
+        if objective == 'dps':
+            return result.dps_change_percent
+        elif objective == 'life':
+            return result.life_change_percent
+        elif objective == 'ehp':
+            return result.ehp_change_percent
+        elif objective == 'balanced':
+            return (
+                result.dps_change_percent * 0.4 +
+                result.life_change_percent * 0.3 +
+                result.ehp_change_percent * 0.3
+            )
+        return result.dps_change_percent
+
+    def evaluate_all_effects_for_node(
+        self,
+        base_xml: str,
+        mastery_node_id: int,
+        calculator: "RelativeCalculator",
+        objective: str = 'dps'
+    ) -> List[MasteryEvaluationResult]:
+        """
+        Evaluate all effects for a mastery node using the calculator.
+
+        Returns list of results sorted by score (best first).
+        """
+        from .modifier import modify_passive_tree_nodes
+
+        available = self.mastery_db.get_available_effects(mastery_node_id)
+        if not available:
+            return []
+
+        results = []
+        for effect in available:
+            modified_xml = modify_passive_tree_nodes(
+                base_xml,
+                mastery_effects_to_add={mastery_node_id: effect.effect_id}
+            )
+            try:
+                eval_result = calculator.evaluate_modification(base_xml, modified_xml)
+                score = self._extract_score_from_evaluation(eval_result, objective)
+                results.append(MasteryEvaluationResult(
+                    effect_id=effect.effect_id,
+                    score=score,
+                    dps_change=eval_result.dps_change_percent,
+                    life_change=eval_result.life_change_percent,
+                    ehp_change=eval_result.ehp_change_percent
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to evaluate effect {effect.effect_id}: {e}")
+
+        results.sort(key=lambda x: x.score, reverse=True)
+        return results
+
+    def select_best_effect_with_calculator(
+        self,
+        base_xml: str,
+        mastery_node_id: int,
+        calculator: "RelativeCalculator",
+        objective: str = 'dps'
+    ) -> Optional[Tuple[int, float]]:
+        """
+        Select best effect using calculator evaluation.
+
+        Returns:
+            Tuple of (effect_id, score) or None if no effects available
+        """
+        results = self.evaluate_all_effects_for_node(
+            base_xml, mastery_node_id, calculator, objective
+        )
+        if not results:
+            return None
+        return (results[0].effect_id, results[0].score)
+
+    def select_best_mastery_effects_batch(
+        self,
+        base_xml: str,
+        allocated_nodes: Set[int],
+        current_effects: Dict[int, int],
+        objective: str,
+        batch_calculator: "BatchCalculator"
+    ) -> Dict[int, int]:
+        """
+        Evaluate all mastery options using batch evaluation.
+
+        This is much faster than evaluating each effect individually
+        when there are many masteries to optimize.
+
+        Args:
+            base_xml: Original build XML
+            allocated_nodes: Set of allocated node IDs
+            current_effects: Current mastery selections {node_id: effect_id}
+            objective: Optimization objective
+            batch_calculator: BatchCalculator instance
+
+        Returns:
+            Best effect for each mastery node {node_id: best_effect_id}
+        """
+        from .modifier import modify_passive_tree_nodes
+
+        # Find mastery nodes
+        mastery_nodes = [
+            node_id for node_id in allocated_nodes
+            if self.mastery_db.is_mastery_node(node_id)
+        ]
+
+        if not mastery_nodes:
+            return {}
+
+        # Build modifications dict: key -> modified_xml
+        modifications = {}
+        effect_map = {}  # key -> (node_id, effect_id)
+
+        for node_id in mastery_nodes:
+            for effect in self.mastery_db.get_available_effects(node_id):
+                key = f"{node_id}:{effect.effect_id}"
+                modifications[key] = modify_passive_tree_nodes(
+                    base_xml,
+                    mastery_effects_to_add={node_id: effect.effect_id}
+                )
+                effect_map[key] = (node_id, effect.effect_id)
+
+        if not modifications:
+            return {}
+
+        # Batch evaluate all modifications
+        try:
+            results = batch_calculator.evaluate_batch(base_xml, modifications)
+        except Exception as e:
+            logger.error(f"Batch evaluation failed: {e}")
+            # Fallback to heuristic selection
+            return self.select_best_mastery_effects(
+                allocated_nodes, current_effects, objective, calculator=None
+            )
+
+        # Find best effect for each node
+        best_effects: Dict[int, int] = {}
+        best_scores: Dict[int, float] = {}
+
+        for key, eval_result in results.items():
+            node_id, effect_id = effect_map[key]
+            score = self._extract_score_from_evaluation(eval_result, objective)
+
+            if node_id not in best_scores or score > best_scores[node_id]:
+                best_scores[node_id] = score
+                best_effects[node_id] = effect_id
+
+        return best_effects
 
 
 def load_mastery_database(pob_path: str = "./PathOfBuilding", tree_version: str = "3_27") -> MasteryDatabase:
