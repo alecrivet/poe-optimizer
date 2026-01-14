@@ -89,3 +89,6 @@ PathOfBuilding/src/Data/TimelessJewelData/*.bin
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Development notes (local only)
+DEVELOPMENT.md
