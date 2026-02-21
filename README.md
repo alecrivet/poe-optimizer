@@ -258,6 +258,13 @@ isort src/ tests/
 
 ## Changelog
 
+### v0.9.1
+- Integrate constraint system into greedy and genetic optimizers
+- Auto-detect point budget from character level in build XML
+- Reject/penalise over-budget candidates during optimization search
+- Add `--max-points` and `--disable-constraints` CLI options
+- 19 new constraint unit tests
+
 ### v0.9.0
 - Import characters directly from GGG's API (`account import`)
 - Auto-detect passive tree version from PoB submodule data
