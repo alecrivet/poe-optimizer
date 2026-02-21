@@ -6,7 +6,7 @@ Tests for jewel socket optimization and discovery
 import pytest
 from src.pob.jewel.socket_optimizer import (
     SocketType,
-    JewelSocket,
+    JewelSocketState,
     JewelAssignment,
     SocketDiscovery,
     JewelConstraintValidator,
@@ -28,12 +28,12 @@ class TestSocketType:
         assert SocketType.SMALL_CLUSTER.value == "small_cluster"
 
 
-class TestJewelSocket:
+class TestJewelSocketState:
     """Test JewelSocket functionality"""
 
     def test_jewel_socket_creation(self):
         """Test creating a jewel socket"""
-        socket = JewelSocket(
+        socket = JewelSocketState(
             node_id=26725,
             socket_type=SocketType.LARGE_CLUSTER,
             is_allocated=True,
@@ -47,7 +47,7 @@ class TestJewelSocket:
 
     def test_can_hold_unique_jewel(self):
         """Test that regular sockets can hold unique jewels"""
-        socket = JewelSocket(
+        socket = JewelSocketState(
             node_id=12345,
             socket_type=SocketType.REGULAR,
         )
@@ -63,7 +63,7 @@ class TestJewelSocket:
 
     def test_can_hold_large_cluster(self):
         """Test that large cluster sockets can hold large clusters"""
-        socket = JewelSocket(
+        socket = JewelSocketState(
             node_id=26725,
             socket_type=SocketType.LARGE_CLUSTER,
             is_outer_rim=True,
@@ -83,7 +83,7 @@ class TestJewelSocket:
 
     def test_cannot_hold_wrong_cluster_size(self):
         """Test that socket rejects wrong cluster size"""
-        medium_socket = JewelSocket(
+        medium_socket = JewelSocketState(
             node_id=65537,
             socket_type=SocketType.MEDIUM_CLUSTER,
         )
@@ -102,7 +102,7 @@ class TestJewelSocket:
 
     def test_timeless_jewels_handled_separately(self):
         """Test that timeless jewels are not assignable via can_hold_jewel"""
-        socket = JewelSocket(
+        socket = JewelSocketState(
             node_id=26725,
             socket_type=SocketType.REGULAR,
         )

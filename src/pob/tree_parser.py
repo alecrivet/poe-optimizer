@@ -18,6 +18,7 @@ Each node has:
 """
 
 import re
+from collections import deque
 import logging
 from pathlib import Path
 from typing import Dict, List, Set, Optional
@@ -125,10 +126,10 @@ class PassiveTreeGraph:
 
         # BFS from start_node
         visited = {start_node}
-        queue = [start_node]
+        queue = deque([start_node])
 
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             neighbors = self.get_neighbors(current)
 
             for neighbor_id in neighbors:
@@ -163,10 +164,10 @@ class PassiveTreeGraph:
 
         # Simple BFS for now (can optimize with A* later)
         visited = {from_node}
-        queue = [(from_node, [from_node])]
+        queue = deque([(from_node, [from_node])])
 
         while queue:
-            current, path = queue.pop(0)
+            current, path = queue.popleft()
             neighbors = self.get_neighbors(current)
 
             for neighbor_id in neighbors:
@@ -207,10 +208,10 @@ class PassiveTreeGraph:
 
         # BFS from all source nodes simultaneously
         visited = set(from_nodes)
-        queue = [(node, 0) for node in from_nodes]
+        queue = deque((node, 0) for node in from_nodes)
 
         while queue:
-            current, distance = queue.pop(0)
+            current, distance = queue.popleft()
 
             for neighbor_id in self.get_neighbors(current):
                 if neighbor_id in visited:

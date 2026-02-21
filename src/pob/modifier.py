@@ -103,8 +103,35 @@ def modify_passive_tree_nodes(
             logger.debug(f"Removing mastery effect for node {removed_node}")
             del mastery_effects[removed_node]
 
-    # 2. Add new mastery effects
-    mastery_effects.update(mastery_effects_to_add)
+    # 2. Add new mastery effects (with validation)
+    if mastery_effects_to_add:
+        # Lazy import to avoid circular imports
+        from .mastery_optimizer import get_mastery_database
+
+        try:
+            mastery_db = get_mastery_database()
+        except Exception as e:
+            logger.debug(f"Could not load mastery database for validation: {e}")
+            mastery_db = None
+
+        for node_id, effect_id in mastery_effects_to_add.items():
+            if mastery_db is not None:
+                mastery_node = mastery_db.get_mastery(node_id)
+                if mastery_node is None:
+                    logger.warning(
+                        f"Mastery node {node_id} not found in database; "
+                        f"applying effect {effect_id} anyway (database may be incomplete)"
+                    )
+                else:
+                    valid_effect_ids = [e.effect_id for e in mastery_node.available_effects]
+                    if effect_id not in valid_effect_ids:
+                        logger.warning(
+                            f"Effect {effect_id} is not valid for mastery node {node_id} "
+                            f"({mastery_node.name}); valid effects: {valid_effect_ids}. "
+                            f"Applying anyway (database may be incomplete)"
+                        )
+
+            mastery_effects[node_id] = effect_id
 
     # 3. Clean up orphaned mastery effects (mastery node not allocated)
     orphaned = set(mastery_effects.keys()) - current_nodes

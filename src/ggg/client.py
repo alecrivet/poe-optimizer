@@ -267,3 +267,16 @@ class GGGClient:
             "items": items,
             "passives": passives,
         }
+
+    def close(self) -> None:
+        """Close the underlying requests session."""
+        self._session.close()
+
+    def __enter__(self) -> "GGGClient":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit context manager, closing the session."""
+        self.close()
+

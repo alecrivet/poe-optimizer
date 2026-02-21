@@ -12,7 +12,7 @@ import logging
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 from ..pob.relative_calculator import RelativeEvaluation
-from ..pob.xml_parser import parse_pob_xml
+from ..pob.xml_parser import parse_pob_stats
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ def calculate_mana_metrics(xml: str) -> Dict[str, float]:
         Dict with keys: total_mana, unreserved_mana, mana_regen, mana_reserved_percent
     """
     try:
-        stats = parse_pob_xml(xml)
+        stats = parse_pob_stats(xml)
 
         # Extract mana stats
         total_mana = stats.get('Mana', 0)
@@ -140,7 +140,7 @@ def calculate_es_metrics(xml: str) -> Dict[str, float]:
         Dict with keys: total_es, es_percent_of_life, es_recharge_rate
     """
     try:
-        stats = parse_pob_xml(xml)
+        stats = parse_pob_stats(xml)
 
         # Extract ES stats
         total_es = stats.get('EnergyShield', 0)
@@ -167,7 +167,7 @@ def calculate_block_metrics(xml: str) -> Dict[str, float]:
         Dict with keys: attack_block, spell_block, block_recovery
     """
     try:
-        stats = parse_pob_xml(xml)
+        stats = parse_pob_stats(xml)
 
         # Extract block stats
         attack_block = stats.get('BlockChance', 0)
@@ -192,7 +192,7 @@ def calculate_clear_speed_metrics(xml: str) -> Dict[str, float]:
         Dict with keys: movement_speed, attack_speed, cast_speed, aoe_radius
     """
     try:
-        stats = parse_pob_xml(xml)
+        stats = parse_pob_stats(xml)
 
         # Extract speed stats
         movement_speed = stats.get('MovementSpeed', 0)

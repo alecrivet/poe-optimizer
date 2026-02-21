@@ -35,7 +35,7 @@ import os
 import random
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple, Set, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from copy import deepcopy
 
 try:
@@ -137,15 +137,22 @@ class Individual:
     generation: int = 0
     parent_ids: Tuple[int, ...] = ()
     individual_id: int = 0
+    _cached_summary: Optional[Dict] = field(default=None, repr=False)
+
+    def _get_summary(self) -> Dict:
+        """Lazily compute and cache the passive tree summary."""
+        if self._cached_summary is None:
+            self._cached_summary = get_passive_tree_summary(self.xml)
+        return self._cached_summary
 
     def get_allocated_nodes(self) -> Set[int]:
         """Get set of allocated node IDs."""
-        summary = get_passive_tree_summary(self.xml)
+        summary = self._get_summary()
         return set(summary['allocated_nodes'])
 
     def get_mastery_effects(self) -> Dict[int, int]:
         """Get mastery effect selections."""
-        summary = get_passive_tree_summary(self.xml)
+        summary = self._get_summary()
         return summary['mastery_effects']
 
     def get_point_count(self) -> int:

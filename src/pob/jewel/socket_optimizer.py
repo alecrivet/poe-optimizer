@@ -8,7 +8,7 @@ respecting jewel-specific constraints (timeless immutability, cluster sizing).
 from enum import Enum
 from dataclasses import dataclass
 from typing import Set, Dict, List, Optional, Tuple
-from .base import BaseJewel, JewelCategory
+from .base import BaseJewel, JewelCategory, OUTER_JEWEL_SOCKETS
 from .timeless import TimelessJewel
 from .cluster import ClusterJewel, ClusterJewelSize
 from .unique import UniqueJewel
@@ -23,7 +23,7 @@ class SocketType(Enum):
 
 
 @dataclass
-class JewelSocket:
+class JewelSocketState:
     """
     Represents a jewel socket on the passive tree.
 
@@ -96,21 +96,8 @@ class SocketDiscovery:
     Discovers and classifies all jewel sockets on the passive tree.
     """
 
-    # Known outer rim large cluster socket node IDs (from PoB data)
-    # These are the sockets on the edge of the tree that can hold large clusters
-    OUTER_RIM_SOCKETS = {
-        2491,   # Top-right outer socket
-        6230,   # Top-left outer socket
-        7960,   # Left outer socket
-        12613,  # Bottom-left outer socket
-        26725,  # Right outer socket
-        33631,  # Bottom outer socket
-        36634,  # Top outer socket
-        41263,  # Bottom-right outer socket
-        46519,  # Right-center outer socket
-        54127,  # Top-right outer socket
-        61419,  # Left-center outer socket
-    }
+    # Use canonical outer socket IDs from base module
+    OUTER_RIM_SOCKETS = OUTER_JEWEL_SOCKETS
 
     def __init__(self, tree_graph):
         """
@@ -120,14 +107,14 @@ class SocketDiscovery:
             tree_graph: PassiveTreeGraph instance
         """
         self.tree_graph = tree_graph
-        self._socket_cache: Optional[Dict[int, JewelSocket]] = None
+        self._socket_cache: Optional[Dict[int, JewelSocketState]] = None
 
-    def discover_all_sockets(self) -> Dict[int, JewelSocket]:
+    def discover_all_sockets(self) -> Dict[int, JewelSocketState]:
         """
         Discover all jewel sockets on the passive tree.
 
         Returns:
-            Dictionary mapping node_id -> JewelSocket
+            Dictionary mapping node_id -> JewelSocketState
         """
         if self._socket_cache is not None:
             return self._socket_cache
@@ -143,7 +130,7 @@ class SocketDiscovery:
             socket_type = self._classify_socket_type(node_id, node_data)
 
             # Create socket object
-            socket = JewelSocket(
+            socket = JewelSocketState(
                 node_id=node_id,
                 socket_type=socket_type,
                 is_outer_rim=(node_id in self.OUTER_RIM_SOCKETS),
@@ -680,7 +667,7 @@ class JewelSocketOptimizer:
 # Export public API
 __all__ = [
     'SocketType',
-    'JewelSocket',
+    'JewelSocketState',
     'JewelAssignment',
     'SocketDiscovery',
     'JewelConstraintValidator',

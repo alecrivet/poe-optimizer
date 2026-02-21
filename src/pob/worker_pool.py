@@ -202,25 +202,39 @@ class PoBWorker:
                 return EvaluationResult(success=False, error=str(e))
 
     def ping(self, timeout: float = 5.0) -> bool:
-        """Check if worker is alive and responsive."""
+        """
+        Check if worker is alive and responsive.
+
+        Uses non-blocking lock acquisition to avoid contention with
+        long-running evaluations. If the lock is held, the worker is
+        busy evaluating (i.e., alive), so we return True immediately.
+        """
         if not self._is_ready or self._is_dead:
             return False
 
-        with self.lock:
-            try:
-                self.process.stdin.write("PING\n")
-                self.process.stdin.flush()
+        # Non-blocking try-lock: if the worker is busy evaluating,
+        # the lock will be held and we know it's alive.
+        acquired = self.lock.acquire(blocking=False)
+        if not acquired:
+            # Worker is busy with an evaluation - it's alive
+            return True
 
-                start_time = time.time()
-                while time.time() - start_time < timeout:
-                    line = self.process.stdout.readline()
-                    if line:
-                        data = json.loads(line.strip())
-                        return data.get("pong", False)
-                return False
-            except Exception:
-                self._is_dead = True
-                return False
+        try:
+            self.process.stdin.write("PING\n")
+            self.process.stdin.flush()
+
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                line = self.process.stdout.readline()
+                if line:
+                    data = json.loads(line.strip())
+                    return data.get("pong", False)
+            return False
+        except Exception:
+            self._is_dead = True
+            return False
+        finally:
+            self.lock.release()
 
     def stop(self):
         """Stop the worker subprocess."""

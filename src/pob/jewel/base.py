@@ -130,7 +130,9 @@ class JewelModifier:
 # Jewel socket node IDs from the passive tree
 # These are the outer jewel sockets that can hold cluster jewels
 OUTER_JEWEL_SOCKETS = {
-    26725, 36634, 33989, 41263, 60735, 61834,
+    2491, 6230, 7960, 12613, 26725, 33631,
+    33989, 36634, 41263, 46519, 54127,
+    60735, 61419, 61834,
 }
 
 # Inner jewel sockets (can only hold regular jewels)
