@@ -135,12 +135,6 @@ OUTER_JEWEL_SOCKETS = {
     60735, 61419, 61834,
 }
 
-# Inner jewel sockets (can only hold regular jewels)
-INNER_JEWEL_SOCKETS = {
-    # There are many - will be populated from tree data
-}
-
-
 def get_jewel_base_type(item_text: str) -> Optional[str]:
     """
     Extract the base type from jewel item text.

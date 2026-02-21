@@ -10,8 +10,16 @@ from dataclasses import dataclass
 from typing import Set, Dict, List, Optional, Tuple
 from .base import BaseJewel, JewelCategory, OUTER_JEWEL_SOCKETS
 from .timeless import TimelessJewel
-from .cluster import ClusterJewel, ClusterJewelSize
+from .cluster import ClusterJewel, ClusterJewelSize, CLUSTER_NODE_MIN_ID
 from .unique import UniqueJewel
+
+
+# Cluster socket classification thresholds
+# Nodes in [CLUSTER_NODE_MIN_ID, LARGE_CLUSTER_NODE_MAX_ID) are large cluster sockets
+# Nodes in [LARGE_CLUSTER_NODE_MAX_ID, MEDIUM_CLUSTER_NODE_MAX_ID) are medium cluster sockets
+# Nodes >= MEDIUM_CLUSTER_NODE_MAX_ID are small cluster sockets
+LARGE_CLUSTER_NODE_MAX_ID = 70000
+MEDIUM_CLUSTER_NODE_MAX_ID = 75000
 
 
 class SocketType(Enum):
@@ -172,13 +180,13 @@ class SocketDiscovery:
         Returns:
             SocketType classification
         """
-        # Cluster nodes have IDs >= 65536
-        if node_id >= 65536:
+        # Cluster nodes have IDs >= CLUSTER_NODE_MIN_ID
+        if node_id >= CLUSTER_NODE_MIN_ID:
             # Determine cluster size based on node properties or ID range
             # This is a simplified classification - actual logic may vary
-            if node_id < 70000:
+            if node_id < LARGE_CLUSTER_NODE_MAX_ID:
                 return SocketType.LARGE_CLUSTER
-            elif node_id < 75000:
+            elif node_id < MEDIUM_CLUSTER_NODE_MAX_ID:
                 return SocketType.MEDIUM_CLUSTER
             else:
                 return SocketType.SMALL_CLUSTER
@@ -360,10 +368,10 @@ class JewelConstraintValidator:
         cluster = assignment.jewel
 
         # Get all cluster nodes belonging to this jewel
-        # Cluster nodes have IDs >= 65536 and belong to the cluster's subgraph
+        # Cluster nodes have IDs >= CLUSTER_NODE_MIN_ID and belong to the cluster's subgraph
         cluster_nodes = {
             node_id for node_id in allocated_nodes
-            if node_id >= 65536  # Cluster node ID range
+            if node_id >= CLUSTER_NODE_MIN_ID  # Cluster node ID range
         }
 
         # If no cluster nodes allocated, connectivity is trivial
@@ -672,4 +680,6 @@ __all__ = [
     'SocketDiscovery',
     'JewelConstraintValidator',
     'JewelSocketOptimizer',
+    'LARGE_CLUSTER_NODE_MAX_ID',
+    'MEDIUM_CLUSTER_NODE_MAX_ID',
 ]

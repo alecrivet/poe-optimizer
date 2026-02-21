@@ -221,7 +221,7 @@ class GGGToPoB:
 
             # Jewel sockets placeholder
             sockets_elem = ET.SubElement(spec, "Sockets")
-            # TODO: Map jewel_data to socket assignments
+            # NOTE: jewel_data to socket mapping not yet implemented (tracked: S2-001)
 
         else:
             spec.set("nodes", "")

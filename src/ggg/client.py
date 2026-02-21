@@ -21,6 +21,7 @@ from .exceptions import (
     PrivateProfileError,
 )
 from .models import Character, CharacterItems, PassiveTree
+from src import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,15 @@ class Realm(Enum):
 @dataclass
 class GGGClientConfig:
     """Configuration for GGG API client."""
-    user_agent: str = "poe-optimizer/0.9.0 (https://github.com/alecrivet/poe-optimizer)"
+    user_agent: str = ""
     base_url: str = "https://www.pathofexile.com"
     timeout: int = 30
     rate_limit_delay: float = 1.0  # seconds between requests
     max_retries: int = 3
+
+    def __post_init__(self):
+        if not self.user_agent:
+            self.user_agent = f"poe-optimizer/{__version__} (https://github.com/alecrivet/poe-optimizer)"
 
 
 class GGGClient:

@@ -18,6 +18,8 @@ from itertools import combinations
 if TYPE_CHECKING:
     from .relative_calculator import RelativeCalculator
 
+from .mastery_optimizer import BALANCED_OBJECTIVE_WEIGHTS
+
 logger = logging.getLogger(__name__)
 
 
@@ -145,9 +147,9 @@ class MasterySynergyDetector:
             return result.ehp_change_percent
         elif objective == 'balanced':
             return (
-                result.dps_change_percent * 0.4 +
-                result.life_change_percent * 0.3 +
-                result.ehp_change_percent * 0.3
+                result.dps_change_percent * BALANCED_OBJECTIVE_WEIGHTS['dps'] +
+                result.life_change_percent * BALANCED_OBJECTIVE_WEIGHTS['life'] +
+                result.ehp_change_percent * BALANCED_OBJECTIVE_WEIGHTS['ehp']
             )
         return result.dps_change_percent
 

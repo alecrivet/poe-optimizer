@@ -25,8 +25,7 @@ sys.path.insert(0, str(project_root))
 from .commands import optimize, analyze, diff, jewels, codec, setup, account
 
 
-# Version from package or fallback
-VERSION = "0.9.0"
+from src import __version__ as VERSION
 
 
 class AliasedGroup(click.Group):

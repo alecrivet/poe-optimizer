@@ -67,6 +67,15 @@ from ..pob.jewel.cluster_subgraph import ClusterSubgraph
 
 logger = logging.getLogger(__name__)
 
+# Minimum number of removable nodes before allowing random node removal
+MIN_TREE_SIZE_FOR_REMOVAL = 50
+
+# Maximum number of random changes when creating variations
+MAX_RANDOM_CHANGES = 5
+
+# Number of generations to look back when checking for convergence
+CONVERGENCE_WINDOW = 10
+
 
 def _evaluate_individual(args: Tuple[int, str, str, str]) -> Tuple[int, Optional[RelativeEvaluation]]:
     """
@@ -641,13 +650,13 @@ class GeneticTreeOptimizer:
                 gen_pbar.set_postfix_str(f"best: {best_individual_overall.fitness:+.2f}%")
 
             # Check for convergence (optional early stopping)
-            if generation > 10:
+            if generation > CONVERGENCE_WINDOW:
                 recent_improvement = (
-                    best_fitness_history[-1] - best_fitness_history[-10]
+                    best_fitness_history[-1] - best_fitness_history[-CONVERGENCE_WINDOW]
                 )
                 if abs(recent_improvement) < 0.1:
                     logger.info(
-                        f"Converged: No significant improvement in 10 generations"
+                        f"Converged: No significant improvement in {CONVERGENCE_WINDOW} generations"
                     )
                     if gen_pbar:
                         gen_pbar.set_postfix_str(f"converged! best: {best_individual_overall.fitness:+.2f}%")
@@ -835,7 +844,7 @@ class GeneticTreeOptimizer:
         This creates diversity in the initial population.
         """
         current_nodes = original_nodes.copy()
-        num_changes = random.randint(1, 5)  # 1-5 random changes
+        num_changes = random.randint(1, MAX_RANDOM_CHANGES)  # 1-N random changes
 
         for _ in range(num_changes):
             action = random.choice(['add', 'remove', 'mastery'])
@@ -861,7 +870,7 @@ class GeneticTreeOptimizer:
             elif action == 'remove':
                 # Remove random node (excluding protected nodes like jewel sockets and cluster nodes)
                 removable_nodes = current_nodes - self.protected_nodes
-                if len(removable_nodes) > 50:  # Keep tree reasonably sized
+                if len(removable_nodes) > MIN_TREE_SIZE_FOR_REMOVAL:  # Keep tree reasonably sized
                     node_to_remove = random.choice(list(removable_nodes))
                     try:
                         xml = modify_passive_tree_nodes(
@@ -1495,7 +1504,7 @@ class GeneticTreeOptimizer:
         elif mutation_type == 'remove':
             # Remove random node (excluding protected nodes like jewel sockets and cluster nodes)
             removable_nodes = current_nodes - self.protected_nodes
-            if len(removable_nodes) > 50:  # Keep tree reasonably sized
+            if len(removable_nodes) > MIN_TREE_SIZE_FOR_REMOVAL:  # Keep tree reasonably sized
                 node_to_remove = random.choice(list(removable_nodes))
                 try:
                     xml = modify_passive_tree_nodes(

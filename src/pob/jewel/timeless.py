@@ -482,15 +482,3 @@ def _get_jewel_socket_ids(tree: "PassiveTreeGraph") -> Set[int]:
     return socket_ids
 
 
-# For testing
-if __name__ == "__main__":
-    # Test with build2.xml
-    with open("examples/build2.xml", "r") as f:
-        xml = f.read()
-
-    jewels = parse_timeless_jewels(xml)
-    print(f"Found {len(jewels)} timeless jewel(s):")
-    for jewel in jewels:
-        print(f"  - {jewel.display_name}")
-        print(f"    Socket: {jewel.socket_node_id}")
-        print(f"    Keystone: {jewel.keystone_name}")

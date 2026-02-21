@@ -6,7 +6,7 @@ This is much simpler and more reliable than trying to recalculate them.
 """
 
 import xml.etree.ElementTree as ET
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 def parse_pob_stats(xml: str) -> Dict[str, float]:
@@ -50,7 +50,7 @@ def parse_pob_stats(xml: str) -> Dict[str, float]:
     return stats
 
 
-def get_build_summary(xml: str) -> Dict[str, any]:
+def get_build_summary(xml: str) -> Dict[str, Any]:
     """
     Extract a summary of key build information from PoB XML.
 

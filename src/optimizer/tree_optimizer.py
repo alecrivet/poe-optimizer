@@ -54,6 +54,12 @@ from ..pob.jewel.registry import JewelRegistry
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of candidates to try per type (removal/addition) per iteration
+MAX_CANDIDATES_PER_TYPE = 20
+
+# Maximum number of jewel swap candidates to evaluate
+MAX_JEWEL_CANDIDATES = 15
+
 
 def _evaluate_candidate(args: Tuple[str, str, str]) -> Tuple[str, str, Optional[RelativeEvaluation]]:
     """
@@ -686,7 +692,7 @@ class GreedyTreeOptimizer:
                     logger.debug(f"Failed to generate cluster candidates: {e}")
 
         # Try removing each allocated node (one at a time)
-        for node_id in list(allocated_nodes)[:20]:  # Limit to first 20 for speed
+        for node_id in list(allocated_nodes)[:MAX_CANDIDATES_PER_TYPE]:  # Limit candidates for speed
             candidate_name = f"Remove node {node_id}"
 
             # Check if we can remove (stay within budget)
@@ -715,7 +721,7 @@ class GreedyTreeOptimizer:
             )
 
             # Limit to first 20 neighbors for speed
-            neighbors_to_try = list(unallocated_neighbors)[:20]
+            neighbors_to_try = list(unallocated_neighbors)[:MAX_CANDIDATES_PER_TYPE]
 
             logger.debug(
                 f"Found {len(unallocated_neighbors)} unallocated neighbors, "
@@ -823,7 +829,7 @@ class GreedyTreeOptimizer:
             )
 
             candidate_count = 0
-            max_candidates = 15
+            max_candidates = MAX_JEWEL_CANDIDATES
 
             # --- Part 1: Generate moves to empty sockets ---
             for jewel in movable_jewels:

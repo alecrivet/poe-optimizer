@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Weights for balanced objective scoring
+BALANCED_OBJECTIVE_WEIGHTS = {'dps': 0.4, 'life': 0.3, 'ehp': 0.3}
+
 
 @dataclass
 class MasteryEffect:
@@ -393,9 +396,9 @@ class MasteryOptimizer:
             return result.ehp_change_percent
         elif objective == 'balanced':
             return (
-                result.dps_change_percent * 0.4 +
-                result.life_change_percent * 0.3 +
-                result.ehp_change_percent * 0.3
+                result.dps_change_percent * BALANCED_OBJECTIVE_WEIGHTS['dps'] +
+                result.life_change_percent * BALANCED_OBJECTIVE_WEIGHTS['life'] +
+                result.ehp_change_percent * BALANCED_OBJECTIVE_WEIGHTS['ehp']
             )
         return result.dps_change_percent
 

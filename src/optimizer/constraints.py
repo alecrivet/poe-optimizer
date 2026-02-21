@@ -11,7 +11,7 @@ import logging
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
 from ..pob.modifier import get_passive_tree_summary
-from ..pob.xml_parser import parse_pob_xml
+from ..pob.xml_parser import parse_pob_stats as parse_pob_xml
 
 logger = logging.getLogger(__name__)
 
@@ -324,32 +324,3 @@ def create_standard_constraints(
         constraints.jewel_sockets = JewelSocketConstraint(min_sockets=min_jewel_sockets)
 
     return constraints
-
-
-def repair_constraint_violations(
-    xml: str,
-    constraints: ConstraintSet,
-    tree_parser,
-) -> Optional[str]:
-    """
-    Attempt to repair constraint violations by modifying the tree.
-
-    This is a simple greedy repair that:
-    1. Removes nodes if over point budget
-    2. Adds attribute nodes if under requirements
-    3. Adds jewel sockets if needed
-
-    Args:
-        xml: Build XML to repair
-        constraints: Constraints to satisfy
-        tree_parser: PassiveTreeGraph for node lookups
-
-    Returns:
-        Repaired XML if successful, None if cannot repair
-    """
-    from ..pob.modifier import modify_passive_tree_nodes
-
-    # For now, just return None (repair not implemented)
-    # Future: Implement smart repair strategies
-    logger.warning("Constraint repair not yet implemented")
-    return None

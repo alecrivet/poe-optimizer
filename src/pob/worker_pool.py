@@ -265,6 +265,86 @@ class PoBWorker:
             self._is_ready = False
             self._is_dead = True
 
+
+    def restart(self) -> bool:
+        """
+        Restart a dead worker by killing the old process and creating a new one.
+
+        Returns:
+            True if worker restarted successfully, False otherwise
+        """
+        with self.lock:
+            logger.warning(f"Restarting worker {self.worker_id}...")
+
+            # Kill old process if still running
+            if self.process is not None:
+                try:
+                    if self.process.poll() is None:
+                        self.process.kill()
+                        self.process.wait(timeout=5.0)
+                except Exception as e:
+                    logger.warning(f"Error killing old process for worker {self.worker_id}: {e}")
+                self.process = None
+
+            # Reset state
+            self._is_dead = False
+            self._is_ready = False
+
+            # Start a new subprocess with the same command/args
+            try:
+                self.process = subprocess.Popen(
+                    [self.lua_command, str(self.evaluator_script)],
+                    cwd=str(self.pob_src_path),
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                )
+
+                # Wait for ready signal (same as in start())
+                start_time = time.time()
+                while time.time() - start_time < self.startup_timeout:
+                    if self.process.poll() is not None:
+                        stderr = self.process.stderr.read() if self.process.stderr else ""
+                        logger.error(f"Worker {self.worker_id} died during restart: {stderr[:500]}")
+                        self._is_dead = True
+                        return False
+
+                    line = self.process.stdout.readline()
+                    if not line:
+                        continue
+
+                    line = line.strip()
+                    if not line or not line.startswith('{'):
+                        continue
+
+                    try:
+                        data = json.loads(line)
+                        if data.get("ready"):
+                            self._is_ready = True
+                            logger.warning(
+                                f"Worker {self.worker_id} restarted successfully "
+                                f"(startup: {time.time() - start_time:.2f}s)"
+                            )
+                            return True
+                    except json.JSONDecodeError:
+                        continue
+
+                logger.error(f"Worker {self.worker_id} restart timed out")
+                self._is_dead = True
+                if self.process and self.process.poll() is None:
+                    self.process.kill()
+                    self.process.wait(timeout=2.0)
+                self.process = None
+                return False
+
+            except Exception as e:
+                logger.error(f"Failed to restart worker {self.worker_id}: {e}")
+                self._is_dead = True
+                self.process = None
+                return False
+
     @property
     def is_alive(self) -> bool:
         """Check if worker process is running."""
@@ -385,17 +465,30 @@ class PoBWorkerPool:
         if not self.workers:
             return EvaluationResult(success=False, error="No workers available")
 
-        # Round-robin worker selection
+        # Round-robin worker selection with auto-restart of dead workers
         with self._lock:
             for _ in range(len(self.workers)):
                 worker = self.workers[self._worker_index % len(self.workers)]
                 self._worker_index += 1
 
+                if not worker.is_alive and worker._is_dead:
+                    # Try to restart the dead worker before skipping it
+                    try:
+                        if worker.restart():
+                            logger.info(f"Pool restarted dead worker {worker.worker_id} on demand")
+                        else:
+                            logger.warning(f"Pool failed to restart worker {worker.worker_id}, skipping")
+                            continue
+                    except Exception as e:
+                        logger.error(f"Pool error restarting worker {worker.worker_id}: {e}")
+                        worker._is_dead = True
+                        continue
+
                 if worker.is_alive:
                     result = worker.evaluate(build_xml, timeout)
                     if result.success or not worker._is_dead:
                         return result
-                    # Worker died, try next one
+                    # Worker died during evaluation, try next one
 
         return EvaluationResult(success=False, error="All workers failed")
 
@@ -441,6 +534,70 @@ class PoBWorkerPool:
             "alive_workers": alive,
             "dead_workers": len(self.workers) - alive,
         }
+
+    def health_check(self) -> Dict:
+        """
+        Check health of all workers and restart any dead ones.
+
+        Returns:
+            Dict with health check results including restart counts
+        """
+        if not self._started or self._shutdown:
+            return {"error": "Pool not started or shutting down"}
+
+        alive_count = 0
+        dead_count = 0
+        restarted_count = 0
+        restart_failed_count = 0
+
+        for worker in self.workers:
+            if worker.is_alive:
+                # Ping to verify the worker is truly responsive
+                if worker.ping():
+                    alive_count += 1
+                else:
+                    # Worker failed ping, it may have just died
+                    dead_count += 1
+                    try:
+                        if worker.restart():
+                            restarted_count += 1
+                            alive_count += 1
+                            dead_count -= 1
+                        else:
+                            restart_failed_count += 1
+                    except Exception as e:
+                        logger.error(f"Health check failed to restart worker {worker.worker_id}: {e}")
+                        worker._is_dead = True
+                        restart_failed_count += 1
+            elif worker._is_dead:
+                dead_count += 1
+                # Try to restart dead workers
+                try:
+                    if worker.restart():
+                        restarted_count += 1
+                        alive_count += 1
+                        dead_count -= 1
+                    else:
+                        restart_failed_count += 1
+                except Exception as e:
+                    logger.error(f"Health check failed to restart worker {worker.worker_id}: {e}")
+                    worker._is_dead = True
+                    restart_failed_count += 1
+
+        stats = {
+            "total_workers": len(self.workers),
+            "alive_workers": alive_count,
+            "dead_workers": dead_count,
+            "restarted_workers": restarted_count,
+            "restart_failures": restart_failed_count,
+        }
+
+        if restarted_count > 0:
+            logger.info(f"Health check: restarted {restarted_count} workers")
+        if restart_failed_count > 0:
+            logger.warning(f"Health check: {restart_failed_count} workers failed to restart")
+
+        return stats
 
     def shutdown(self):
         """Shutdown all workers and clean up."""
