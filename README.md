@@ -16,6 +16,18 @@ This tool takes a Path of Building export code, analyzes the passive tree, and u
 - CLI tool for scripting and automation
 - Outputs importable PoB codes
 
+## What This Does / What This Doesn't Do
+
+| What it does | What it doesn't do |
+|---|---|
+| Optimize passive node allocation on an existing tree | Create builds from scratch |
+| Use PoB's real Lua calculation engine for accurate stats | Approximate stats with its own formulas |
+| Protect jewel sockets, cluster subgraphs, and timeless jewels | Optimize jewel contents or timeless seeds |
+| Select optimal mastery effects per node | Optimize ascendancy choices |
+| Import characters directly from GGG's API | Interact with the game client |
+| Auto-detect tree version from PoB data | Require manual version updates each patch |
+| Output importable PoB codes and XML | Optimize items, gems, or skill links |
+
 ## Best Use Case
 
 **This tool is designed for optimizing existing builds, not creating new ones from scratch.**
@@ -242,8 +254,34 @@ isort src/ tests/
 - **Items/Gems:** Currently fixed; optimizer only modifies passive tree
 - **Keystones:** May produce invalid builds if keystones conflict
 - **Ascendancy:** Not currently optimized
-- **Mastery Selection:** Basic mastery optimization available but not exhaustive
-- **Jewel Socket Optimization:** Can swap jewel locations but doesn't optimize jewel contents
+- **Jewel Contents:** Can swap jewel locations but doesn't optimize jewel contents or timeless seeds
+
+## Changelog
+
+### v0.9.0
+- Import characters directly from GGG's API (`account import`)
+- Auto-detect passive tree version from PoB submodule data
+- Update PoB submodule to v2.60.0 (adds 3.27 alternate trees)
+- Eliminate all hardcoded tree version references
+
+### v0.8.0
+- Mastery effect optimization with context-aware scoring
+- Jewel socket swapping (greedy + genetic)
+- Thread of Hope ring analysis and node allocation
+- Cluster jewel notable reallocation
+- Build context extraction for smarter scoring
+
+### v0.7.0
+- Parallel candidate evaluation across CPU cores
+- Batch evaluation with persistent Lua worker pool (~2x speedup)
+- Real-time progress bars for optimization and evaluation
+- Optimizer comparison scripts
+
+### v0.6.0
+- Full CLI tool (`optimize`, `analyze`, `diff`, `jewels`, `encode`, `decode`, `setup`)
+- Timeless jewel parsing with legion data loading
+- Cluster jewel subgraph detection and protection
+- Unique jewel recognition (178 types)
 
 ## Roadmap
 
@@ -251,7 +289,8 @@ isort src/ tests/
 - [x] **v0.5** - Desktop GUI (shelved, see `feature/gui-development`)
 - [x] **v0.6** - Jewel support and CLI tool
 - [x] **v0.7** - Parallel/batch evaluation, progress bars, performance optimization
-- [ ] **v0.8** - Expanded jewel optimization, better mastery handling
+- [x] **v0.8** - Mastery optimization, jewel socket swapping, cluster notable reallocation
+- [x] **v0.9** - GGG account import, dynamic tree version detection
 - [ ] **v1.0** - Item optimization, gem links, production ready
 
 ## Contributing
