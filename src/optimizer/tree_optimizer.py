@@ -45,6 +45,7 @@ from ..pob.mastery_optimizer import (
 from ..pob.build_context import BuildContext
 from ..pob.tree_parser import load_passive_tree, PassiveTreeGraph
 from ..pob.tree_positions import TreePositionLoader
+from ..pob.tree_version import get_tree_version_from_xml
 from ..pob.jewel.radius_calculator import RadiusCalculator
 from ..pob.jewel.thread_of_hope import ThreadOfHopeOptimizer, ThreadOfHopePlacement
 from ..pob.jewel.cluster_optimizer import ClusterNotableOptimizer
@@ -126,6 +127,7 @@ class GreedyTreeOptimizer:
         max_workers: Optional[int] = None,  # Parallel workers (None = CPU count)
         use_batch_evaluation: bool = False,  # EXPERIMENTAL: Use persistent worker pool
         show_progress: bool = True,  # Show progress bars during optimization
+        tree_version: Optional[str] = None,  # Tree version (None = auto-detect)
     ):
         """
         Initialize the optimizer.
@@ -154,6 +156,7 @@ class GreedyTreeOptimizer:
         self.max_workers = max_workers if max_workers is not None else os.cpu_count()
         self.use_batch_evaluation = use_batch_evaluation
         self.show_progress = show_progress and TQDM_AVAILABLE
+        self.tree_version = tree_version
 
         # Initialize calculator based on evaluation mode
         if use_batch_evaluation:
@@ -167,7 +170,7 @@ class GreedyTreeOptimizer:
         # Load mastery database if optimization enabled
         if self.optimize_masteries:
             logger.info("Loading mastery database...")
-            self.mastery_db = get_mastery_database()
+            self.mastery_db = get_mastery_database(tree_version=self.tree_version)
             self.mastery_optimizer = MasteryOptimizer(self.mastery_db)
             logger.info(f"Loaded {len(self.mastery_db.masteries)} mastery nodes")
         else:
@@ -177,7 +180,7 @@ class GreedyTreeOptimizer:
         # Load passive tree graph for node addition
         if self.enable_node_addition:
             logger.info("Loading passive tree graph...")
-            self.tree_graph = load_passive_tree()
+            self.tree_graph = load_passive_tree(self.tree_version)
             logger.info(f"Loaded {self.tree_graph.count_nodes()} nodes from passive tree")
         else:
             self.tree_graph = None
@@ -186,7 +189,7 @@ class GreedyTreeOptimizer:
         if self.optimize_jewel_sockets:
             if not self.tree_graph:
                 logger.info("Loading passive tree graph for jewel socket optimization...")
-                self.tree_graph = load_passive_tree()
+                self.tree_graph = load_passive_tree(self.tree_version)
 
             from ..pob.jewel.socket_optimizer import SocketDiscovery, JewelConstraintValidator
             logger.info("Initializing jewel socket optimizer...")
@@ -196,7 +199,7 @@ class GreedyTreeOptimizer:
             # Initialize Thread of Hope optimizer
             try:
                 logger.info("Initializing Thread of Hope optimizer...")
-                position_loader = TreePositionLoader()
+                position_loader = TreePositionLoader(self.tree_version)
                 positions = position_loader.load_positions()
                 self.radius_calculator = RadiusCalculator(positions)
                 self.thread_of_hope_optimizer = ThreadOfHopeOptimizer(
@@ -251,6 +254,12 @@ class GreedyTreeOptimizer:
             OptimizationResult with optimization details
         """
         logger.info(f"Starting optimization with objective: {objective}")
+
+        # Resolve tree version from build XML if not explicitly set
+        if self.tree_version is None:
+            self.tree_version = get_tree_version_from_xml(build_xml)
+            if self.tree_version:
+                logger.info(f"Detected tree version from build: {self.tree_version}")
 
         # Store baseline XML for mastery evaluation
         self._baseline_xml = build_xml

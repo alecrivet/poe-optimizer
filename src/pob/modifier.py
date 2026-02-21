@@ -273,6 +273,7 @@ def get_passive_tree_summary(xml: str) -> Dict:
             'mastery_effects': {},
             'class_name': class_name,
             'ascendancy_name': ascendancy_name,
+            'tree_version': None,
         }
 
     nodes_str = spec_elem.get("nodes", "")
@@ -287,6 +288,7 @@ def get_passive_tree_summary(xml: str) -> Dict:
         'mastery_effects': mastery_effects,
         'class_name': class_name,
         'ascendancy_name': ascendancy_name,
+        'tree_version': spec_elem.get("treeVersion"),
     }
 
 

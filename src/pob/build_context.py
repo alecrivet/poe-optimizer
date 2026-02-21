@@ -23,6 +23,8 @@ import re
 import xml.etree.ElementTree as ET
 import logging
 from dataclasses import dataclass, field
+
+from .tree_version import get_latest_tree_version
 from typing import Dict, Set, Tuple, Any, Optional, List
 from pathlib import Path
 
@@ -389,14 +391,18 @@ class BuildContextExtractor:
     - Analyze gear for defense style hints
     """
 
-    def __init__(self, pob_path: str = "./PathOfBuilding"):
+    def __init__(self, pob_path: str = "./PathOfBuilding", tree_version: Optional[str] = None):
         """
         Initialize the extractor.
 
         Args:
             pob_path: Path to PathOfBuilding directory (for keystone node IDs)
+            tree_version: Tree version string. If None, auto-detects latest.
         """
         self.pob_path = Path(pob_path)
+        if tree_version is None:
+            tree_version = get_latest_tree_version(pob_path) or "3_27"
+        self.tree_version = tree_version
         self._keystone_ids: Optional[Dict[int, str]] = None
 
     def extract(self, build_xml: str) -> BuildContext:
@@ -631,7 +637,7 @@ class BuildContextExtractor:
         """
         result: Dict[int, str] = {}
 
-        tree_file = self.pob_path / "src" / "TreeData" / "3_27" / "tree.lua"
+        tree_file = self.pob_path / "src" / "TreeData" / self.tree_version / "tree.lua"
 
         if not tree_file.exists():
             logger.warning(f"Tree file not found: {tree_file}")

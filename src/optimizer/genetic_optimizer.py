@@ -57,6 +57,7 @@ from ..pob.mastery_optimizer import (
 from ..pob.build_context import BuildContext
 from ..pob.tree_parser import load_passive_tree, PassiveTreeGraph
 from ..pob.tree_positions import TreePositionLoader
+from ..pob.tree_version import get_tree_version_from_xml
 from ..pob.jewel.registry import JewelRegistry
 from ..pob.jewel.cluster import is_cluster_node_id
 from ..pob.jewel.radius_calculator import RadiusCalculator
@@ -385,6 +386,7 @@ class GeneticTreeOptimizer:
         max_workers: Optional[int] = None,
         use_batch_evaluation: bool = False,
         show_progress: bool = True,
+        tree_version: Optional[str] = None,
     ):
         """
         Initialize genetic algorithm optimizer.
@@ -418,10 +420,11 @@ class GeneticTreeOptimizer:
         self.max_workers = max_workers if max_workers is not None else os.cpu_count()
         self.use_batch_evaluation = use_batch_evaluation
         self.show_progress = show_progress and TQDM_AVAILABLE
+        self.tree_version = tree_version
 
         # Initialize components
         self.calculator = RelativeCalculator()
-        self.tree_graph = load_passive_tree()
+        self.tree_graph = load_passive_tree(self.tree_version)
 
         # Initialize batch calculator if using batch evaluation
         if use_batch_evaluation:
@@ -431,7 +434,7 @@ class GeneticTreeOptimizer:
             self.batch_calculator = None
 
         if self.optimize_masteries:
-            self.mastery_db = get_mastery_database()
+            self.mastery_db = get_mastery_database(tree_version=self.tree_version)
             self.mastery_optimizer = MasteryOptimizer(self.mastery_db)
         else:
             self.mastery_db = None
@@ -447,7 +450,7 @@ class GeneticTreeOptimizer:
             # Initialize Thread of Hope optimizer
             try:
                 logger.info("Initializing Thread of Hope optimizer...")
-                position_loader = TreePositionLoader()
+                position_loader = TreePositionLoader(self.tree_version)
                 positions = position_loader.load_positions()
                 self.radius_calculator = RadiusCalculator(positions)
                 self.thread_of_hope_optimizer = ThreadOfHopeOptimizer(
@@ -521,6 +524,12 @@ class GeneticTreeOptimizer:
             f"Generations: {self.generations}, "
             f"Mutation rate: {self.mutation_rate:.0%}"
         )
+
+        # Resolve tree version from build XML if not explicitly set
+        if self.tree_version is None:
+            self.tree_version = get_tree_version_from_xml(build_xml)
+            if self.tree_version:
+                logger.info(f"Detected tree version from build: {self.tree_version}")
 
         # Store baseline XML for mastery evaluation
         self._baseline_xml = build_xml

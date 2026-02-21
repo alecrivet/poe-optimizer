@@ -16,6 +16,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from .tree_version import get_latest_tree_version
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,14 +67,17 @@ class TreePositionLoader:
     DEFAULT_SKILLS_PER_ORBIT = [1, 6, 16, 16, 40, 72, 72]
     DEFAULT_ORBIT_RADII = [0, 82, 162, 335, 493, 662, 846]
 
-    def __init__(self, tree_version: str = "3_27", pob_path: str = "./PathOfBuilding"):
+    def __init__(self, tree_version: Optional[str] = None, pob_path: str = "./PathOfBuilding"):
         """
         Initialize with PoE tree version.
 
         Args:
-            tree_version: Tree version string (e.g., "3_27")
+            tree_version: Tree version string (e.g., "3_27").
+                          If None, auto-detects latest from TreeData.
             pob_path: Path to PathOfBuilding installation
         """
+        if tree_version is None:
+            tree_version = get_latest_tree_version(pob_path) or "3_27"
         self.tree_version = tree_version
         self.pob_path = Path(pob_path)
 
@@ -349,22 +354,24 @@ class TreePositionLoader:
 _loader_cache: Dict[str, TreePositionLoader] = {}
 
 
-def get_position_loader(tree_version: str = "3_27") -> TreePositionLoader:
+def get_position_loader(tree_version: Optional[str] = None) -> TreePositionLoader:
     """
     Get a cached TreePositionLoader instance.
 
     Args:
-        tree_version: Tree version string
+        tree_version: Tree version string. If None, auto-detects latest.
 
     Returns:
         TreePositionLoader instance (cached)
     """
+    if tree_version is None:
+        tree_version = get_latest_tree_version() or "3_27"
     if tree_version not in _loader_cache:
         _loader_cache[tree_version] = TreePositionLoader(tree_version)
     return _loader_cache[tree_version]
 
 
-def load_tree_positions(tree_version: str = "3_27") -> Dict[int, NodePosition]:
+def load_tree_positions(tree_version: Optional[str] = None) -> Dict[int, NodePosition]:
     """
     Convenience function to load tree positions.
 

@@ -134,8 +134,8 @@ def list_characters(
 )
 @click.option(
     "--tree-version", "-t",
-    default="3_27",
-    help="Passive tree version. Default: 3_27"
+    default=None,
+    help="Passive tree version. Default: auto-detect latest from PoB data."
 )
 @common_options
 @click.pass_context
@@ -147,7 +147,7 @@ def import_character(
     poesessid: Optional[str],
     pob_code: bool,
     passives_only: bool,
-    tree_version: str,
+    tree_version: Optional[str],
     json_output: bool,
     output_file: Optional[str],
 ):

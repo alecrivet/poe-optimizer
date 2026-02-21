@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
+from .tree_version import get_latest_tree_version
+
 if TYPE_CHECKING:
     from .relative_calculator import RelativeCalculator, RelativeEvaluation
     from .batch_calculator import BatchCalculator
@@ -533,7 +535,7 @@ class MasteryOptimizer:
         return best_effects
 
 
-def load_mastery_database(pob_path: str = "./PathOfBuilding", tree_version: str = "3_27") -> MasteryDatabase:
+def load_mastery_database(pob_path: str = "./PathOfBuilding", tree_version: Optional[str] = None) -> MasteryDatabase:
     """
     Load mastery database from PathOfBuilding tree data.
 
@@ -544,6 +546,8 @@ def load_mastery_database(pob_path: str = "./PathOfBuilding", tree_version: str 
     Returns:
         MasteryDatabase with all masteries loaded
     """
+    if tree_version is None:
+        tree_version = get_latest_tree_version(pob_path) or "3_27"
     tree_file = Path(pob_path) / "src" / "TreeData" / tree_version / "tree.lua"
 
     if not tree_file.exists():
@@ -655,11 +659,11 @@ def _parse_mastery_effects_from_lua(lua_block: str) -> List[MasteryEffect]:
 _mastery_db: Optional[MasteryDatabase] = None
 
 
-def get_mastery_database(reload: bool = False) -> MasteryDatabase:
+def get_mastery_database(reload: bool = False, tree_version: Optional[str] = None) -> MasteryDatabase:
     """Get the global mastery database instance."""
     global _mastery_db
 
     if _mastery_db is None or reload:
-        _mastery_db = load_mastery_database()
+        _mastery_db = load_mastery_database(tree_version=tree_version)
 
     return _mastery_db

@@ -7,7 +7,9 @@ representation and PoB's XML structure.
 
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from ..pob.tree_version import get_latest_tree_version
 import logging
 
 from .models import Character, CharacterItems, PassiveTree, Item
@@ -85,9 +87,13 @@ class ConversionOptions:
     """Options for controlling the conversion process."""
     include_items: bool = True
     include_passives: bool = True
-    tree_version: str = "3_27"
+    tree_version: Optional[str] = None
     default_gem_level: int = 20
     default_gem_quality: int = 20
+
+    def __post_init__(self):
+        if self.tree_version is None:
+            self.tree_version = get_latest_tree_version() or "3_27"
 
 
 class GGGToPoB:

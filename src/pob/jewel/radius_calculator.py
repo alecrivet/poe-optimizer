@@ -54,7 +54,7 @@ class RadiusCalculator:
         self._distance_cache: Dict[Tuple[int, int], float] = {}
 
     @classmethod
-    def from_tree_version(cls, tree_version: str = "3_27") -> "RadiusCalculator":
+    def from_tree_version(cls, tree_version: Optional[str] = None) -> "RadiusCalculator":
         """
         Create RadiusCalculator from tree version.
 

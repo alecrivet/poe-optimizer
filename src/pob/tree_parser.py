@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional
 from dataclasses import dataclass
 
+from .tree_version import get_latest_tree_version
+
 logger = logging.getLogger(__name__)
 
 
@@ -251,16 +253,20 @@ class TreeParser:
         self.pob_path = Path(pob_path)
         self.tree_cache: Optional[PassiveTreeGraph] = None
 
-    def load_tree(self, tree_version: str = "3_27") -> PassiveTreeGraph:
+    def load_tree(self, tree_version: Optional[str] = None) -> PassiveTreeGraph:
         """
         Load passive tree for a specific game version.
 
         Args:
-            tree_version: Tree version (e.g., "3_27" for PoE 3.27)
+            tree_version: Tree version (e.g., "3_27" for PoE 3.27).
+                          If None, auto-detects latest from TreeData.
 
         Returns:
             PassiveTreeGraph with all nodes and connections
         """
+        if tree_version is None:
+            tree_version = get_latest_tree_version(str(self.pob_path)) or "3_27"
+
         if self.tree_cache and self.tree_cache.tree_version == tree_version:
             logger.info(f"Using cached tree version {tree_version}")
             return self.tree_cache
@@ -461,7 +467,7 @@ def get_tree_parser() -> TreeParser:
     return _tree_parser
 
 
-def load_passive_tree(tree_version: str = "3_27") -> PassiveTreeGraph:
+def load_passive_tree(tree_version: Optional[str] = None) -> PassiveTreeGraph:
     """
     Convenience function to load the passive tree.
 
