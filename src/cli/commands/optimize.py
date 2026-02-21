@@ -3,10 +3,13 @@ Optimize command - Main optimization workflow.
 """
 
 import click
+import logging
 import time
 from typing import Optional
 
 from ..utils import InputHandler, get_output_handler, common_options, input_argument
+
+logger = logging.getLogger(__name__)
 
 
 @click.command()
@@ -81,6 +84,18 @@ from ..utils import InputHandler, get_output_handler, common_options, input_argu
     help="Minimum EHP constraint."
 )
 @click.option(
+    "--max-points",
+    type=int,
+    default=None,
+    help="Explicit maximum passive point cap (overrides auto-detection from level)."
+)
+@click.option(
+    "--disable-constraints",
+    is_flag=True,
+    default=False,
+    help="Disable point budget constraints. Default: constraints enabled."
+)
+@click.option(
     "--pob-code", "-c",
     is_flag=True,
     help="Output PoB code instead of stats."
@@ -102,6 +117,8 @@ def optimize(
     protect_jewels: bool,
     min_life: Optional[int],
     min_ehp: Optional[int],
+    max_points: Optional[int],
+    disable_constraints: bool,
     pob_code: bool,
     json_output: bool,
     output_file: Optional[str],
@@ -133,7 +150,7 @@ def optimize(
     output.progress(f"Loading build from {input_source}...")
     try:
         build_xml = InputHandler.load(input_source)
-    except Exception as e:
+    except (FileNotFoundError, IOError, ValueError) as e:
         raise click.ClickException(f"Failed to load build: {e}")
 
     # Show jewel info if protecting
@@ -145,7 +162,21 @@ def optimize(
             if protected:
                 output.info(f"Protected nodes: {len(protected)} (jewel sockets + cluster nodes)")
         except Exception:
-            pass  # Jewel parsing is optional
+            logger.debug("Jewel parsing failed (optional)", exc_info=True)
+
+    # Build constraints
+    constraints = None
+    if disable_constraints:
+        from src.optimizer.constraints import ConstraintSet
+        constraints = ConstraintSet()  # Empty constraint set — prevents auto-creation
+        output.info("Constraints disabled")
+    elif max_points is not None:
+        from src.optimizer.constraints import ConstraintSet, PointBudgetConstraint
+        constraints = ConstraintSet(
+            point_budget=PointBudgetConstraint(max_points=max_points)
+        )
+        output.info(f"Point budget constraint: max {max_points} points")
+    # Otherwise (constraints=None), auto_constraints_from_xml is called inside the optimizer
 
     # Select optimizer
     output.progress(f"Starting {algorithm} optimization for {objective}...")
@@ -159,6 +190,7 @@ def optimize(
                 max_iterations=iterations,
                 min_improvement=0.1,
                 optimize_masteries=optimize_masteries,
+                constraints=constraints,
             )
             result = optimizer.optimize(
                 build_xml,
@@ -185,6 +217,7 @@ def optimize(
                 generations=generations,
                 mutation_rate=mutation_rate,
                 optimize_masteries=optimize_masteries,
+                constraints=constraints,
             )
             result = optimizer.optimize(build_xml, objective=objective)
 
@@ -230,9 +263,15 @@ def optimize(
             }
 
     except Exception as e:
+        logger.debug("Optimization failed", exc_info=True)
         raise click.ClickException(f"Optimization failed: {e}")
 
     elapsed = time.time() - start_time
+
+    # Display constraint violations as warnings
+    violations = getattr(result, 'constraint_violations', [])
+    for v in violations:
+        output.warning(f"Constraint violation: {v}")
 
     # Generate PoB code
     optimized_code = encode_pob_code(optimized_xml)

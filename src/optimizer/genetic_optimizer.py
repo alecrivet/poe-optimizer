@@ -64,6 +64,7 @@ from ..pob.jewel.radius_calculator import RadiusCalculator
 from ..pob.jewel.thread_of_hope import ThreadOfHopeOptimizer
 from ..pob.jewel.cluster_optimizer import ClusterNotableOptimizer
 from ..pob.jewel.cluster_subgraph import ClusterSubgraph
+from .constraints import ConstraintSet, auto_constraints_from_xml
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,7 @@ class GeneticOptimizationResult:
         best_fitness_history: Best fitness in each generation
         avg_fitness_history: Average fitness in each generation
         final_population: Final population after evolution
+        constraint_violations: List of constraint violation messages for best individual
     """
     original_xml: str
     best_xml: str
@@ -122,6 +124,11 @@ class GeneticOptimizationResult:
     best_fitness_history: List[float]
     avg_fitness_history: List[float]
     final_population: 'Population'
+    constraint_violations: List[str] = None
+
+    def __post_init__(self):
+        if self.constraint_violations is None:
+            self.constraint_violations = []
 
     def get_improvement(self, objective: str = 'dps') -> float:
         """Get improvement percentage for an objective."""
@@ -185,6 +192,7 @@ class Population:
         max_workers: int = 1,
         use_batch_evaluation: bool = False,
         show_progress: bool = True,
+        constraints: Optional[ConstraintSet] = None,
     ):
         """
         Initialize population.
@@ -197,6 +205,7 @@ class Population:
             max_workers: Number of parallel workers for evaluation
             use_batch_evaluation: If True, use batch calculator
             show_progress: If True, show progress bars during evaluation
+            constraints: Optional constraint set for fitness penalty
         """
         self.individuals = individuals
         self.baseline_xml = baseline_xml
@@ -205,6 +214,7 @@ class Population:
         self.max_workers = max_workers
         self.use_batch_evaluation = use_batch_evaluation
         self.show_progress = show_progress and TQDM_AVAILABLE
+        self.constraints = constraints
         self.generation = 0
         self._next_id = 0
 
@@ -247,22 +257,29 @@ class Population:
         if eval_pbar:
             eval_pbar.close()
 
-    def _calculate_fitness(self, eval_result: RelativeEvaluation, objective: str) -> float:
-        """Calculate fitness score from evaluation result."""
+    def _calculate_fitness(self, eval_result: RelativeEvaluation, objective: str,
+                           node_count: Optional[int] = None) -> float:
+        """Calculate fitness score from evaluation result, including constraint penalty."""
         if objective == 'dps':
-            return eval_result.dps_change_percent
+            base = eval_result.dps_change_percent
         elif objective == 'life':
-            return eval_result.life_change_percent
+            base = eval_result.life_change_percent
         elif objective == 'ehp':
-            return eval_result.ehp_change_percent
+            base = eval_result.ehp_change_percent
         elif objective == 'balanced':
-            return (
+            base = (
                 eval_result.dps_change_percent +
                 eval_result.life_change_percent +
                 eval_result.ehp_change_percent
             ) / 3
         else:
             raise ValueError(f"Unknown objective: {objective}")
+
+        # Apply constraint penalty
+        if self.constraints and node_count is not None:
+            base += self.constraints.get_fitness_penalty(node_count)
+
+        return base
 
     def _evaluate_sequential(self, objective: str, pbar=None) -> None:
         """Evaluate all individuals sequentially."""
@@ -271,7 +288,8 @@ class Population:
                 self.baseline_xml,
                 individual.xml
             )
-            individual.fitness = self._calculate_fitness(eval_result, objective)
+            node_count = individual.get_point_count() if self.constraints else None
+            individual.fitness = self._calculate_fitness(eval_result, objective, node_count)
             individual.fitness_details = eval_result
             if pbar:
                 pbar.update(1)
@@ -296,7 +314,8 @@ class Population:
                     result_idx, eval_result = future.result()
                     if eval_result is not None:
                         individual = self.individuals[result_idx]
-                        individual.fitness = self._calculate_fitness(eval_result, objective)
+                        node_count = individual.get_point_count() if self.constraints else None
+                        individual.fitness = self._calculate_fitness(eval_result, objective, node_count)
                         individual.fitness_details = eval_result
                     else:
                         # Failed evaluation - assign very low fitness
@@ -326,7 +345,8 @@ class Population:
                 key = f"individual_{i}"
                 if key in batch_results:
                     eval_result = batch_results[key]
-                    ind.fitness = self._calculate_fitness(eval_result, objective)
+                    node_count = ind.get_point_count() if self.constraints else None
+                    ind.fitness = self._calculate_fitness(eval_result, objective, node_count)
                     ind.fitness_details = eval_result
                 else:
                     ind.fitness = -1000  # Failed evaluation
@@ -403,6 +423,7 @@ class GeneticTreeOptimizer:
         use_batch_evaluation: bool = False,
         show_progress: bool = True,
         tree_version: Optional[str] = None,
+        constraints: Optional[ConstraintSet] = None,
     ):
         """
         Initialize genetic algorithm optimizer.
@@ -494,6 +515,9 @@ class GeneticTreeOptimizer:
         # Protected nodes (jewel sockets, cluster nodes) - set during optimize()
         self.protected_nodes: Set[int] = set()
 
+        # Constraint system (auto-created from build XML if not provided)
+        self.constraints = constraints
+
         # Build context for context-aware mastery scoring (set during optimize())
         self.build_context: Optional[BuildContext] = None
         self._baseline_xml: Optional[str] = None  # Store for mastery evaluation
@@ -546,6 +570,12 @@ class GeneticTreeOptimizer:
             self.tree_version = get_tree_version_from_xml(build_xml)
             if self.tree_version:
                 logger.info(f"Detected tree version from build: {self.tree_version}")
+
+        # Auto-create constraints from build XML if not provided
+        if self.constraints is None:
+            self.constraints = auto_constraints_from_xml(build_xml)
+        if self.constraints:
+            logger.info(f"Constraints: {self.constraints}")
 
         # Store baseline XML for mastery evaluation
         self._baseline_xml = build_xml
@@ -731,6 +761,15 @@ class GeneticTreeOptimizer:
         )
         logger.info(f"Generations: {population.generation}")
 
+        # Post-optimization constraint check on best individual
+        constraint_violations = []
+        if self.constraints:
+            constraint_violations = self.constraints.get_violations(
+                best_individual_overall.xml
+            )
+            for v in constraint_violations:
+                logger.warning(f"Constraint violation in best individual: {v}")
+
         # Return result
         return GeneticOptimizationResult(
             original_xml=build_xml,
@@ -741,6 +780,7 @@ class GeneticTreeOptimizer:
             best_fitness_history=best_fitness_history,
             avg_fitness_history=avg_fitness_history,
             final_population=population,
+            constraint_violations=constraint_violations,
         )
 
     def shutdown(self):
@@ -820,6 +860,7 @@ class GeneticTreeOptimizer:
             max_workers=self.max_workers,
             use_batch_evaluation=self.use_batch_evaluation,
             show_progress=self.show_progress,
+            constraints=self.constraints,
         )
 
         # Assign IDs and evaluate
@@ -1095,6 +1136,18 @@ class GeneticTreeOptimizer:
         except Exception as e:
             logger.debug(f"Crossover failed, using parent1: {e}")
             offspring_xml = parent1.xml
+
+        # Validate offspring against constraints; fall back to fitter parent if over budget
+        if self.constraints and self.constraints.point_budget:
+            summary = get_passive_tree_summary(offspring_xml)
+            node_count = len(summary['allocated_nodes'])
+            if not self.constraints.validate_node_count(node_count):
+                fitter_parent = parent1 if parent1.fitness >= parent2.fitness else parent2
+                logger.debug(
+                    f"Crossover offspring over budget ({node_count} nodes), "
+                    f"falling back to fitter parent"
+                )
+                offspring_xml = fitter_parent.xml
 
         # Create offspring individual
         offspring = Individual(
@@ -1556,6 +1609,16 @@ class GeneticTreeOptimizer:
             xml = self._mutate_cluster_notable(xml, current_nodes)
             if xml != original_xml:
                 logger.debug("Mutation: Modified cluster notable allocation")
+
+        # Validate mutation against constraints; revert if over budget
+        if self.constraints and self.constraints.point_budget and xml != individual.xml:
+            summary = get_passive_tree_summary(xml)
+            node_count = len(summary['allocated_nodes'])
+            if not self.constraints.validate_node_count(node_count):
+                logger.debug(
+                    f"Mutation produced over-budget tree ({node_count} nodes), reverting"
+                )
+                xml = individual.xml
 
         # Create mutated individual (keep same generation and parent IDs)
         mutated = Individual(

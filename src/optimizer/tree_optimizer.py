@@ -51,6 +51,7 @@ from ..pob.jewel.thread_of_hope import ThreadOfHopeOptimizer, ThreadOfHopePlacem
 from ..pob.jewel.cluster_optimizer import ClusterNotableOptimizer
 from ..pob.jewel.cluster_subgraph import ClusterSubgraph, ClusterSubgraphBuilder
 from ..pob.jewel.registry import JewelRegistry
+from .constraints import ConstraintSet, auto_constraints_from_xml
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,11 @@ class OptimizationResult:
     iterations: int
     modifications_applied: List[Dict]
     improvement_history: List[float]
+    constraint_violations: List[str] = None
+
+    def __post_init__(self):
+        if self.constraint_violations is None:
+            self.constraint_violations = []
 
     def get_improvement(self, objective: str = 'dps') -> float:
         """Get total improvement percentage for an objective."""
@@ -134,6 +140,7 @@ class GreedyTreeOptimizer:
         use_batch_evaluation: bool = False,  # EXPERIMENTAL: Use persistent worker pool
         show_progress: bool = True,  # Show progress bars during optimization
         tree_version: Optional[str] = None,  # Tree version (None = auto-detect)
+        constraints: Optional[ConstraintSet] = None,  # Point budget / attribute constraints
     ):
         """
         Initialize the optimizer.
@@ -234,6 +241,9 @@ class GreedyTreeOptimizer:
         self.build_context: Optional[BuildContext] = None
         self._baseline_xml: Optional[str] = None  # Store for mastery evaluation
 
+        # Constraint system (auto-created from build XML if not provided)
+        self.constraints = constraints
+
         logger.info(
             f"Initialized GreedyTreeOptimizer (max_iterations={max_iterations}, "
             f"min_improvement={min_improvement}%, max_points_change={max_points_change}, "
@@ -266,6 +276,12 @@ class GreedyTreeOptimizer:
             self.tree_version = get_tree_version_from_xml(build_xml)
             if self.tree_version:
                 logger.info(f"Detected tree version from build: {self.tree_version}")
+
+        # Auto-create constraints from build XML if not provided
+        if self.constraints is None:
+            self.constraints = auto_constraints_from_xml(build_xml)
+        if self.constraints:
+            logger.info(f"Constraints: {self.constraints}")
 
         # Store baseline XML for mastery evaluation
         self._baseline_xml = build_xml
@@ -503,6 +519,13 @@ class GreedyTreeOptimizer:
             f"{final_eval.life_change_percent:+.1f}% Life)"
         )
 
+        # Post-optimization constraint check on final result
+        constraint_violations = []
+        if self.constraints:
+            constraint_violations = self.constraints.get_violations(current_xml)
+            for v in constraint_violations:
+                logger.warning(f"Constraint violation in final result: {v}")
+
         return OptimizationResult(
             original_xml=build_xml,
             optimized_xml=current_xml,
@@ -511,6 +534,7 @@ class GreedyTreeOptimizer:
             iterations=len(modifications_applied),
             modifications_applied=modifications_applied,
             improvement_history=improvement_history,
+            constraint_violations=constraint_violations,
         )
 
     def shutdown(self):
@@ -607,6 +631,26 @@ class GreedyTreeOptimizer:
                 )
 
         return xml
+
+    def _validate_candidate(self, candidate_xml: str, candidate_name: str) -> bool:
+        """
+        Check if a candidate satisfies point budget constraints.
+
+        Uses fast node-count check (no PoB call).
+
+        Returns:
+            True if valid or no constraints configured, False if over budget.
+        """
+        if not self.constraints or not self.constraints.point_budget:
+            return True
+
+        summary = get_passive_tree_summary(candidate_xml)
+        node_count = len(summary['allocated_nodes'])
+        if not self.constraints.validate_node_count(node_count):
+            violation = self.constraints.point_budget.get_node_count_violation(node_count)
+            logger.debug(f"Skipping candidate '{candidate_name}': {violation}")
+            return False
+        return True
 
     def _generate_candidates(
         self,
@@ -709,7 +753,8 @@ class GreedyTreeOptimizer:
                         objective
                     )
 
-                    candidates[candidate_name] = modified_xml
+                    if self._validate_candidate(modified_xml, candidate_name):
+                        candidates[candidate_name] = modified_xml
                 except Exception as e:
                     logger.debug(f"Failed to remove node {node_id}: {e}")
 
@@ -755,7 +800,8 @@ class GreedyTreeOptimizer:
                         objective
                     )
 
-                    candidates[candidate_name] = modified_xml
+                    if self._validate_candidate(modified_xml, candidate_name):
+                        candidates[candidate_name] = modified_xml
                 except Exception as e:
                     logger.debug(f"Failed to add node {node_id}: {e}")
 
