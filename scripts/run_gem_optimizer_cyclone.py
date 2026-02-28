@@ -182,6 +182,25 @@ def main():
             best = results[0]
             print(f"  Best for this slot: {current['name']} -> {best[0]} ({best[1]:+.2f}% FullDPS)")
 
+            # Apply the swap so subsequent slots see updated state
+            if best[1] > 0:
+                best_info = gem_db.get_support_by_name(best[0])
+                build_xml = replace_support_gem(
+                    build_xml,
+                    socket_group_idx=group['index'],
+                    gem_idx=support_idx,
+                    new_gem_name=best_info.name,
+                    new_game_id=best_info.game_id,
+                    new_variant_id=best_info.variant_id,
+                    new_skill_id=best_info.granted_effect_id,
+                    level=best_info.max_level,
+                    quality=20,
+                )
+                used_names.discard(current['name'])
+                used_names.add(best[0])
+                group['gems'][support_idx]['name'] = best[0]
+                print(f"  ** Applied swap, updated state for next slots **")
+
 
 if __name__ == "__main__":
     main()
