@@ -9,7 +9,11 @@ to avoid code duplication. These functions handle:
 - Construction of RelativeEvaluation from raw stats
 """
 
-from typing import Dict, NamedTuple
+import logging
+import xml.etree.ElementTree as ET
+from typing import Dict, List, NamedTuple
+
+logger = logging.getLogger(__name__)
 
 
 class BuildStats(NamedTuple):
@@ -127,6 +131,38 @@ def build_evaluation_from_accurate_stats(
         baseline_lua_dps=baseline.dps,
         modified_lua_dps=modified.dps,
     )
+
+
+def enable_full_dps(xml_str: str, group_indices: List[int] = None) -> str:
+    """
+    Set includeInFullDPS="true" on socket groups so PoB computes FullDPS.
+
+    PoB only computes FullDPS for socket groups where the user has explicitly
+    checked "Include in Full DPS" in the GUI. This function enables that flag
+    on specified groups (or all enabled groups if none specified).
+
+    Args:
+        xml_str: Build XML string.
+        group_indices: 1-based group indices to enable (matching the indices
+                       from get_main_skill_info). If None, enables on all
+                       enabled socket groups.
+
+    Returns:
+        Modified XML string with includeInFullDPS set.
+    """
+    root = ET.fromstring(xml_str)
+
+    # Find all Skill elements (may be under SkillSet or directly under Skills)
+    skill_groups = root.findall(".//SkillSet/Skill")
+    if not skill_groups:
+        skill_groups = root.findall(".//Skills/Skill")
+
+    for i, sg in enumerate(skill_groups, 1):  # 1-based to match get_main_skill_info
+        if group_indices is None or i in group_indices:
+            if sg.get("enabled", "true") == "true":
+                sg.set("includeInFullDPS", "true")
+
+    return ET.tostring(root, encoding="unicode")
 
 
 def build_evaluation_from_lua(

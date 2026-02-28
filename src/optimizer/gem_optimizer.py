@@ -32,6 +32,7 @@ from ..pob.gem_database import GemDatabase, GemClassification, GemInfo
 from ..pob.modifier import get_main_skill_info, replace_support_gem
 from ..pob.batch_calculator import BatchCalculator
 from ..pob.relative_calculator import RelativeCalculator, RelativeEvaluation
+from ..pob.calculator_utils import enable_full_dps
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,12 @@ class GreedyGemOptimizer:
 
         # Update calculator's dps_mode to match
         calculator.dps_mode = effective_dps_mode
+
+        # Enable includeInFullDPS on main skill group(s) so PoB computes FullDPS
+        if effective_dps_mode == "full":
+            group_indices = [g['index'] for g in groups]  # 1-based from get_main_skill_info
+            build_xml = enable_full_dps(build_xml, group_indices)
+            logger.info(f"Enabled includeInFullDPS on groups: {group_indices}")
 
         # Build set of pinned gems (auto + explicit)
         pinned: Set[str] = set(self.pinned_gems)
