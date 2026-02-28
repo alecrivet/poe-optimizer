@@ -20,6 +20,7 @@ from src.pob.gem_database import GemDatabase, GemClassification
 from src.pob.modifier import get_main_skill_info, get_skill_groups_summary, replace_support_gem
 from src.pob.xml_parser import get_build_summary
 from src.pob.relative_calculator import RelativeCalculator
+from src.pob.calculator_utils import enable_full_dps
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -101,6 +102,12 @@ def main():
         print(f"  -> These gems will be PINNED (not swapped out)")
     else:
         print(f"  No damage-dealing supports found, using dps_mode='combined'")
+
+    # Enable includeInFullDPS on the main skill group so PoB computes FullDPS
+    if damage_dealing:
+        group_indices = [g['index'] for g in groups]  # 1-based from get_main_skill_info
+        build_xml = enable_full_dps(build_xml, group_indices)
+        print(f"  Enabled includeInFullDPS on XML groups: {group_indices}")
 
     # Run gem swap evaluation with fullDPS mode
     print(f"\n{'='*70}")
