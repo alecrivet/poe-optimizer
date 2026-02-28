@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 
 from src.ggg.converter import GGGToPoB, ConversionOptions, CLASS_MAP, ASCENDANCY_MAP
 from src.ggg.models import Character, CharacterItems, PassiveTree, Item, ItemSocket
+from src.pob.tree_version import get_latest_tree_version_or_raise
 
 
 class TestClassMappings:
@@ -50,7 +51,7 @@ class TestConversionOptions:
         opts = ConversionOptions()
         assert opts.include_items is True
         assert opts.include_passives is True
-        assert opts.tree_version == "3_27"
+        assert opts.tree_version == get_latest_tree_version_or_raise()
         assert opts.default_gem_level == 20
         assert opts.default_gem_quality == 20
 

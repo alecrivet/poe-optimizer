@@ -258,6 +258,11 @@ isort src/ tests/
 
 ## Changelog
 
+### v0.9.2
+- Replace silent `or "3_27"` fallbacks with `get_latest_tree_version_or_raise()` across 6 call sites
+- Fail loudly with a clear submodule-init message when tree data is missing
+- Make tests version-agnostic so they don't break each league
+
 ### v0.9.1
 - Integrate constraint system into greedy and genetic optimizers
 - Auto-detect point budget from character level in build XML

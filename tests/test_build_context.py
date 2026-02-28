@@ -18,6 +18,7 @@ from src.pob.build_context import (
     extract_build_context,
     KEYSTONE_NAMES,
 )
+from src.pob.tree_version import get_latest_tree_version
 
 
 # Path to test fixtures
@@ -372,7 +373,8 @@ class TestKeystoneLoading:
         keystone_ids = extractor._load_keystone_ids()
 
         # Should have loaded some keystones (if PathOfBuilding is present)
-        if Path("./PathOfBuilding/src/TreeData/3_27/tree.lua").exists():
+        tree_version = get_latest_tree_version()
+        if tree_version and Path(f"./PathOfBuilding/src/TreeData/{tree_version}/tree.lua").exists():
             assert len(keystone_ids) > 0
             # Check that values are valid keystone identifiers
             for node_id, keystone_name in keystone_ids.items():

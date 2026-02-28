@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 import logging
 from dataclasses import dataclass, field
 
-from .tree_version import get_latest_tree_version
+from .tree_version import get_latest_tree_version_or_raise
 from typing import Dict, Set, Tuple, Any, Optional, List
 from pathlib import Path
 
@@ -401,7 +401,7 @@ class BuildContextExtractor:
         """
         self.pob_path = Path(pob_path)
         if tree_version is None:
-            tree_version = get_latest_tree_version(pob_path) or "3_27"
+            tree_version = get_latest_tree_version_or_raise(pob_path)
         self.tree_version = tree_version
         self._keystone_ids: Optional[Dict[int, str]] = None
 

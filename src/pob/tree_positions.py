@@ -16,7 +16,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from .tree_version import get_latest_tree_version
+from .tree_version import get_latest_tree_version_or_raise
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class TreePositionLoader:
     - orbitRadii: [0, 82, 162, 335, 493, 662, 846] - radius of each orbit
     """
 
-    # Default orbit configuration (from 3.27 tree.lua)
+    # Default orbit configuration (from tree.lua)
     DEFAULT_SKILLS_PER_ORBIT = [1, 6, 16, 16, 40, 72, 72]
     DEFAULT_ORBIT_RADII = [0, 82, 162, 335, 493, 662, 846]
 
@@ -72,12 +72,12 @@ class TreePositionLoader:
         Initialize with PoE tree version.
 
         Args:
-            tree_version: Tree version string (e.g., "3_27").
+            tree_version: Tree version string (e.g., "3_28").
                           If None, auto-detects latest from TreeData.
             pob_path: Path to PathOfBuilding installation
         """
         if tree_version is None:
-            tree_version = get_latest_tree_version(pob_path) or "3_27"
+            tree_version = get_latest_tree_version_or_raise(pob_path)
         self.tree_version = tree_version
         self.pob_path = Path(pob_path)
 
@@ -365,7 +365,7 @@ def get_position_loader(tree_version: Optional[str] = None) -> TreePositionLoade
         TreePositionLoader instance (cached)
     """
     if tree_version is None:
-        tree_version = get_latest_tree_version() or "3_27"
+        tree_version = get_latest_tree_version_or_raise()
     if tree_version not in _loader_cache:
         _loader_cache[tree_version] = TreePositionLoader(tree_version)
     return _loader_cache[tree_version]

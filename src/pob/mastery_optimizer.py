@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 
-from .tree_version import get_latest_tree_version
+from .tree_version import get_latest_tree_version_or_raise
 
 if TYPE_CHECKING:
     from .relative_calculator import RelativeCalculator, RelativeEvaluation
@@ -544,13 +544,13 @@ def load_mastery_database(pob_path: str = "./PathOfBuilding", tree_version: Opti
 
     Args:
         pob_path: Path to PathOfBuilding directory
-        tree_version: Tree version (e.g., "3_27")
+        tree_version: Tree version (e.g., "3_28")
 
     Returns:
         MasteryDatabase with all masteries loaded
     """
     if tree_version is None:
-        tree_version = get_latest_tree_version(pob_path) or "3_27"
+        tree_version = get_latest_tree_version_or_raise(pob_path)
     tree_file = Path(pob_path) / "src" / "TreeData" / tree_version / "tree.lua"
 
     if not tree_file.exists():
