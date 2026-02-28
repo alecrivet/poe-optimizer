@@ -30,6 +30,11 @@ from dataclasses import dataclass
 
 from .caller import PoBCalculator
 from .xml_parser import get_build_summary
+from .calculator_utils import (
+    extract_build_stats,
+    build_evaluation_from_accurate_stats,
+    build_evaluation_from_lua,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,17 +102,22 @@ class RelativeCalculator:
         >>> print(f"Estimated DPS: {result.estimated_dps:,.0f}")
     """
 
-    def __init__(self, calibration_factor: float = 1.0):
+    def __init__(self, calibration_factor: float = 1.0, dps_mode: str = "combined"):
         """
         Initialize the relative calculator.
 
         Args:
             calibration_factor: Adjustment factor for ratio extrapolation.
                                Can be tuned based on empirical testing.
+            dps_mode: Which DPS metric to use. "combined" for main skill only,
+                      "full" for sum of all skills (useful when supports deal
+                      their own damage, e.g. Shockwave).
         """
         self.pob_calc = PoBCalculator()
         self.calibration_factor = calibration_factor
-        logger.info("Initialized RelativeCalculator (calibration: %.2f)", calibration_factor)
+        self.dps_mode = dps_mode
+        logger.info("Initialized RelativeCalculator (calibration: %.2f, dps_mode: %s)",
+                     calibration_factor, dps_mode)
 
     def evaluate_modification(
         self,
@@ -140,93 +150,42 @@ class RelativeCalculator:
         """
         # Get accurate baseline from original XML
         logger.debug("Parsing accurate baseline from original XML...")
-        baseline_accurate = get_build_summary(original_xml)
+        baseline_accurate = extract_build_stats(get_build_summary(original_xml), self.dps_mode)
 
-        baseline_dps = baseline_accurate.get('combinedDPS', 0)
-        baseline_life = baseline_accurate.get('life', 0)
-        baseline_ehp = baseline_accurate.get('totalEHP', 0)
-
-        if baseline_dps == 0 and baseline_life == 0:
+        if baseline_accurate.dps == 0 and baseline_accurate.life == 0:
             logger.warning("Baseline XML has no pre-calculated stats! "
                           "Results will be inaccurate.")
 
         # Try to get stats from modified XML first (if it has pre-calculated stats)
-        modified_accurate = get_build_summary(modified_xml)
-        if (modified_accurate.get('combinedDPS', 0) > 0 and
-            not use_lua_fallback):
+        modified_accurate = extract_build_stats(get_build_summary(modified_xml), self.dps_mode)
+        if modified_accurate.dps > 0 and not use_lua_fallback:
             # Modified XML has accurate stats, use them directly
             logger.debug("Using pre-calculated stats from modified XML (no extrapolation needed)")
-            return RelativeEvaluation(
-                baseline_dps=baseline_dps,
-                baseline_life=baseline_life,
-                baseline_ehp=baseline_ehp,
-                estimated_dps=modified_accurate.get('combinedDPS', 0),
-                estimated_life=modified_accurate.get('life', 0),
-                estimated_ehp=modified_accurate.get('totalEHP', 0),
-                dps_ratio=modified_accurate.get('combinedDPS', 0) / baseline_dps if baseline_dps else 1.0,
-                life_ratio=modified_accurate.get('life', 0) / baseline_life if baseline_life else 1.0,
-                ehp_ratio=modified_accurate.get('totalEHP', 0) / baseline_ehp if baseline_ehp else 1.0,
-                dps_change_percent=(modified_accurate.get('combinedDPS', 0) / baseline_dps - 1) * 100 if baseline_dps else 0,
-                life_change_percent=(modified_accurate.get('life', 0) / baseline_life - 1) * 100 if baseline_life else 0,
-                ehp_change_percent=(modified_accurate.get('totalEHP', 0) / baseline_ehp - 1) * 100 if baseline_ehp else 0,
-                baseline_lua_dps=baseline_dps,
-                modified_lua_dps=modified_accurate.get('combinedDPS', 0),
-            )
+            return build_evaluation_from_accurate_stats(baseline_accurate, modified_accurate)
 
         # Calculate both with Lua (use_xml_stats=False to force Lua calculation)
         logger.debug("Calculating baseline with Lua...")
-        baseline_lua = self.pob_calc.evaluate_build(original_xml, use_xml_stats=False)
+        baseline_lua = extract_build_stats(
+            self.pob_calc.evaluate_build(original_xml, use_xml_stats=False),
+            self.dps_mode,
+        )
 
         logger.debug("Calculating modified with Lua...")
-        modified_lua = self.pob_calc.evaluate_build(modified_xml, use_xml_stats=False)
+        modified_lua = extract_build_stats(
+            self.pob_calc.evaluate_build(modified_xml, use_xml_stats=False),
+            self.dps_mode,
+        )
 
-        baseline_lua_dps = baseline_lua.get('combinedDPS', 0)
-        baseline_lua_life = baseline_lua.get('life', 0)
-        baseline_lua_ehp = baseline_lua.get('totalEHP', 0)
-
-        modified_lua_dps = modified_lua.get('combinedDPS', 0)
-        modified_lua_life = modified_lua.get('life', 0)
-        modified_lua_ehp = modified_lua.get('totalEHP', 0)
-
-        # Calculate ratios (with safety checks for division by zero)
-        dps_ratio = (modified_lua_dps / baseline_lua_dps * self.calibration_factor
-                     if baseline_lua_dps > 0 else 1.0)
-        life_ratio = (modified_lua_life / baseline_lua_life
-                      if baseline_lua_life > 0 else 1.0)
-        ehp_ratio = (modified_lua_ehp / baseline_lua_ehp
-                     if baseline_lua_ehp > 0 else 1.0)
-
-        # Extrapolate estimated real stats
-        estimated_dps = baseline_dps * dps_ratio
-        estimated_life = baseline_life * life_ratio
-        estimated_ehp = baseline_ehp * ehp_ratio
-
-        # Calculate percent changes
-        dps_change = (dps_ratio - 1) * 100
-        life_change = (life_ratio - 1) * 100
-        ehp_change = (ehp_ratio - 1) * 100
+        result = build_evaluation_from_lua(
+            baseline_accurate, baseline_lua, modified_lua, self.calibration_factor
+        )
 
         logger.info(
             "Evaluation complete: DPS %+.1f%%, Life %+.1f%%, EHP %+.1f%%",
-            dps_change, life_change, ehp_change
+            result.dps_change_percent, result.life_change_percent, result.ehp_change_percent
         )
 
-        return RelativeEvaluation(
-            baseline_dps=baseline_dps,
-            baseline_life=baseline_life,
-            baseline_ehp=baseline_ehp,
-            estimated_dps=estimated_dps,
-            estimated_life=estimated_life,
-            estimated_ehp=estimated_ehp,
-            dps_ratio=dps_ratio,
-            life_ratio=life_ratio,
-            ehp_ratio=ehp_ratio,
-            dps_change_percent=dps_change,
-            life_change_percent=life_change,
-            ehp_change_percent=ehp_change,
-            baseline_lua_dps=baseline_lua_dps,
-            modified_lua_dps=modified_lua_dps,
-        )
+        return result
 
     def compare_modifications(
         self,

@@ -100,6 +100,30 @@ logger = logging.getLogger(__name__)
     is_flag=True,
     help="Output PoB code instead of stats."
 )
+@click.option(
+    "--optimize-gems/--no-gems",
+    default=False,
+    help="Optimize support gem selections after tree optimization. Default: no"
+)
+@click.option(
+    "--main-skill",
+    type=str,
+    default=None,
+    help="Override main skill detection with gem name (e.g., 'Cyclone of Tumult')"
+)
+@click.option(
+    "--dps-mode",
+    type=click.Choice(["auto", "combined", "full"]),
+    default="auto",
+    help="DPS metric for gem optimization. 'auto' uses fullDPS when damage-dealing "
+         "supports (e.g. Shockwave) are present. Default: auto"
+)
+@click.option(
+    "--pin-gem",
+    multiple=True,
+    type=str,
+    help="Pin a gem by name (never swap it out). Can be repeated."
+)
 @common_options
 @click.pass_context
 def optimize(
@@ -120,6 +144,10 @@ def optimize(
     max_points: Optional[int],
     disable_constraints: bool,
     pob_code: bool,
+    optimize_gems: bool,
+    main_skill: Optional[str],
+    dps_mode: str,
+    pin_gem: tuple,
     json_output: bool,
     output_file: Optional[str],
 ):
@@ -266,6 +294,44 @@ def optimize(
         logger.debug("Optimization failed", exc_info=True)
         raise click.ClickException(f"Optimization failed: {e}")
 
+    # Gem optimization (runs after tree optimization)
+    gem_swaps = []
+    if optimize_gems:
+        output.progress("Starting support gem optimization...")
+        try:
+            from src.pob.gem_database import GemDatabase
+            from src.pob.batch_calculator import BatchCalculator
+            from src.optimizer.gem_optimizer import GreedyGemOptimizer
+
+            gem_db = GemDatabase.from_pob_data()
+            gem_optimizer = GreedyGemOptimizer(
+                gem_db,
+                dps_mode=dps_mode,
+                pinned_gems=set(pin_gem) if pin_gem else None,
+            )
+
+            with BatchCalculator() as gem_calc:
+                gem_result = gem_optimizer.optimize(
+                    optimized_xml,
+                    calculator=gem_calc,
+                    objective=objective,
+                    main_skill_override=main_skill,
+                )
+
+            optimized_xml = gem_result.optimized_xml
+            gem_swaps = gem_result.swaps
+
+            if gem_swaps:
+                output.info(f"Gem optimization: {len(gem_swaps)} support gem(s) swapped")
+                for swap in gem_swaps:
+                    output.info(f"  {swap.old_name} -> {swap.new_name} ({swap.dps_change_percent:+.1f}% {objective})")
+            else:
+                output.info("Gem optimization: current supports are already optimal")
+
+        except Exception as e:
+            logger.debug("Gem optimization failed", exc_info=True)
+            output.warning(f"Gem optimization failed: {e}")
+
     elapsed = time.time() - start_time
 
     # Display constraint violations as warnings
@@ -294,6 +360,11 @@ def optimize(
             "details": details,
             "pob_code_length": len(optimized_code),
         }
+        if gem_swaps:
+            results["gem_swaps"] = [
+                {"old": s.old_name, "new": s.new_name, "change": round(s.dps_change_percent, 2)}
+                for s in gem_swaps
+            ]
 
         if json_output:
             results["pob_code"] = optimized_code
