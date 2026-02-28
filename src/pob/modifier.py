@@ -365,6 +365,184 @@ def get_skill_groups_summary(xml: str) -> List[Dict]:
     return result
 
 
+def get_main_skill_info(
+    xml: str,
+    main_skill_override: Optional[str] = None,
+) -> List[Dict]:
+    """
+    Identify the main skill socket group(s) to optimize.
+
+    Returns info about which socket groups contain the main skill and
+    any Righteous Fire groups (always included since RF is a common
+    secondary damage source that benefits from support gems).
+
+    Args:
+        xml: PoB build XML string
+        main_skill_override: If given, find groups containing this gem name.
+                            Otherwise, use Build's mainSocketGroup attribute.
+
+    Returns:
+        List of dicts, each with:
+            'index': int (1-based socket group index)
+            'gems': list of gem dicts (name, level, quality, enabled, gem_idx)
+            'support_indices': list of int (0-based gem indices that are supports)
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as e:
+        raise BuildModificationError(f"Invalid XML: {e}")
+
+    skills_elem = root.find("Skills")
+    if skills_elem is None:
+        raise BuildModificationError("No <Skills> element found")
+
+    active_set_id = skills_elem.get("activeSkillSet", "1")
+    skill_set = skills_elem.find(f".//SkillSet[@id='{active_set_id}']")
+    if skill_set is None:
+        raise BuildModificationError(f"No SkillSet with id={active_set_id} found")
+
+    skill_elements = list(skill_set.findall("Skill"))
+    if not skill_elements:
+        return []
+
+    # Build gem info for all groups
+    all_groups = []
+    for idx, skill_elem in enumerate(skill_elements, 1):
+        gems = []
+        support_indices = []
+        for gem_idx, gem_elem in enumerate(skill_elem.findall("Gem")):
+            name = gem_elem.get("nameSpec", "")
+            gem_info = {
+                'name': name,
+                'level': int(gem_elem.get("level", 1)),
+                'quality': int(gem_elem.get("quality", 0)),
+                'enabled': gem_elem.get("enabled", "true") == "true",
+                'gem_idx': gem_idx,
+                'gemId': gem_elem.get("gemId", ""),
+                'variantId': gem_elem.get("variantId", ""),
+                'skillId': gem_elem.get("skillId", ""),
+            }
+            gems.append(gem_info)
+            # Heuristic: support gems have "Support" in their name, gemId, or variantId
+            gem_id = gem_elem.get("gemId", "")
+            variant = gem_elem.get("variantId", "")
+            if "Support" in gem_id or "Support" in variant or "Support" in name:
+                support_indices.append(gem_idx)
+        all_groups.append({
+            'index': idx,
+            'gems': gems,
+            'support_indices': support_indices,
+            'enabled': skill_elem.get("enabled", "true") == "true",
+        })
+
+    result = []
+
+    if main_skill_override:
+        # Find groups containing the specified gem name
+        override_lower = main_skill_override.lower()
+        for group in all_groups:
+            for gem in group['gems']:
+                if gem['name'].lower() == override_lower:
+                    result.append(group)
+                    break
+        if not result:
+            raise BuildModificationError(
+                f"Gem '{main_skill_override}' not found in any socket group"
+            )
+    else:
+        # Use mainSocketGroup from Build element
+        build_elem = root.find("Build")
+        main_group_idx = int(build_elem.get("mainSocketGroup", "1")) if build_elem is not None else 1
+        if 1 <= main_group_idx <= len(all_groups):
+            result.append(all_groups[main_group_idx - 1])
+
+    # Always include Righteous Fire groups (common secondary damage)
+    existing_indices = {g['index'] for g in result}
+    for group in all_groups:
+        if group['index'] in existing_indices:
+            continue
+        for gem in group['gems']:
+            if gem['name'].lower() in ("righteous fire", "vaal righteous fire"):
+                result.append(group)
+                break
+
+    return result
+
+
+def replace_support_gem(
+    xml: str,
+    socket_group_idx: int,
+    gem_idx: int,
+    new_gem_name: str,
+    new_game_id: str,
+    new_variant_id: str,
+    new_skill_id: str,
+    level: int = 20,
+    quality: int = 20,
+) -> str:
+    """
+    Replace a support gem in a socket group with a different gem.
+
+    Args:
+        xml: PoB build XML string
+        socket_group_idx: Socket group index (1-based)
+        gem_idx: Gem index within group (0-based)
+        new_gem_name: Display name of new gem
+        new_game_id: gameId / gemId for XML
+        new_variant_id: variantId for XML
+        new_skill_id: grantedEffectId / skillId for XML
+        level: Gem level (20 for normal, 5 for awakened)
+        quality: Gem quality (default 20)
+
+    Returns:
+        Modified XML string
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as e:
+        raise BuildModificationError(f"Invalid XML: {e}")
+
+    skills_elem = root.find("Skills")
+    if skills_elem is None:
+        raise BuildModificationError("No <Skills> element found")
+
+    active_set_id = skills_elem.get("activeSkillSet", "1")
+    skill_set = skills_elem.find(f".//SkillSet[@id='{active_set_id}']")
+    if skill_set is None:
+        raise BuildModificationError(f"No SkillSet with id={active_set_id} found")
+
+    skill_elements = list(skill_set.findall("Skill"))
+    if socket_group_idx < 1 or socket_group_idx > len(skill_elements):
+        raise BuildModificationError(
+            f"Invalid socket group index: {socket_group_idx}. "
+            f"Build has {len(skill_elements)} socket groups."
+        )
+
+    skill_elem = skill_elements[socket_group_idx - 1]
+    gem_elements = list(skill_elem.findall("Gem"))
+
+    if gem_idx < 0 or gem_idx >= len(gem_elements):
+        raise BuildModificationError(
+            f"Invalid gem index: {gem_idx}. "
+            f"Socket group has {len(gem_elements)} gems."
+        )
+
+    gem_elem = gem_elements[gem_idx]
+    old_name = gem_elem.get("nameSpec", "unknown")
+
+    # Replace gem attributes
+    gem_elem.set("nameSpec", new_gem_name)
+    gem_elem.set("gemId", new_game_id)
+    gem_elem.set("variantId", new_variant_id)
+    gem_elem.set("skillId", new_skill_id)
+    gem_elem.set("level", str(level))
+    gem_elem.set("quality", str(quality))
+
+    logger.debug(f"Replaced gem: {old_name} → {new_gem_name} (group {socket_group_idx}, idx {gem_idx})")
+
+    return ET.tostring(root, encoding="unicode")
+
+
 def _parse_mastery_effects(mastery_effects_str: str) -> Dict[int, int]:
     """
     Parse mastery effects string into dict.

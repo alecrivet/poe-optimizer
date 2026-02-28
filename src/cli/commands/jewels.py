@@ -3,9 +3,12 @@ Jewels command - Show jewel information and analysis.
 """
 
 import click
+import logging
 from typing import Optional
 
 from ..utils import InputHandler, get_output_handler, common_options, input_argument
+
+logger = logging.getLogger(__name__)
 
 
 @click.command()
@@ -72,7 +75,7 @@ def jewels(
     output.progress(f"Loading build from {input_source}...")
     try:
         build_xml = InputHandler.load(input_source)
-    except Exception as e:
+    except (FileNotFoundError, IOError, ValueError) as e:
         raise click.ClickException(f"Failed to load build: {e}")
 
     # Get jewel registry
@@ -81,7 +84,8 @@ def jewels(
         tree_summary = get_passive_tree_summary(build_xml)
         allocated_nodes = set(tree_summary.get("allocated_nodes", []))
         protected_nodes = registry.get_protected_nodes(allocated_nodes)
-    except Exception as e:
+    except (KeyError, ValueError) as e:
+        logger.debug("Failed to parse jewels", exc_info=True)
         raise click.ClickException(f"Failed to parse jewels: {e}")
 
     # Load tree graph and position data for analysis
@@ -98,6 +102,7 @@ def jewels(
             positions = position_loader.load_positions()
             radius_calculator = RadiusCalculator(positions)
         except Exception as e:
+            logger.debug("Could not load tree data for analysis", exc_info=True)
             output.progress(f"Warning: Could not load tree data for analysis: {e}")
 
     # Build result
@@ -179,6 +184,7 @@ def jewels(
                         "efficiency": round(placement.efficiency, 2),
                     })
         except Exception as e:
+            logger.debug("Thread of Hope analysis failed", exc_info=True)
             result["thread_of_hope_analysis"] = {"error": str(e)}
 
     # Timeless jewel socket analysis
@@ -216,6 +222,7 @@ def jewels(
                 key=lambda x: x["notables_in_radius"], reverse=True
             )
         except Exception as e:
+            logger.debug("Timeless jewel analysis failed", exc_info=True)
             result["timeless_analysis"] = {"error": str(e)}
 
     # Cluster jewel analysis
@@ -249,6 +256,7 @@ def jewels(
                     "optimization_potential": len(available_notables) > 0,
                 })
         except Exception as e:
+            logger.debug("Cluster jewel analysis failed", exc_info=True)
             result["cluster_analysis"] = {"error": str(e)}
 
     output.output(result, title="JEWEL INFORMATION")

@@ -16,6 +16,7 @@ def visualize_tree_diff(
     optimized_xml: str,
     output_file: str = "tree_diff.txt",
     tree_parser=None,
+    quiet: bool = False,
 ):
     """
     Create visual representation of tree differences.
@@ -31,6 +32,7 @@ def visualize_tree_diff(
         optimized_xml: Optimized build XML
         output_file: Path to save text report
         tree_parser: PassiveTreeGraph for node lookups (optional)
+        quiet: If True, skip printing report to console (default: False)
 
     Returns:
         Path to output file if successful, None otherwise
@@ -70,7 +72,7 @@ def visualize_tree_diff(
     report_lines.append("")
 
     # Summary
-    report_lines.append("📊 Summary:")
+    report_lines.append("Summary:")
     report_lines.append(f"   Original points: {len(original_nodes)}")
     report_lines.append(f"   Optimized points: {len(optimized_nodes)}")
     report_lines.append(f"   Net change: {net_change:+d} points")
@@ -81,7 +83,7 @@ def visualize_tree_diff(
 
     # Nodes added
     if nodes_added:
-        report_lines.append("✅ NODES ADDED:")
+        report_lines.append("[+] NODES ADDED:")
         report_lines.append("")
 
         if tree_parser:
@@ -91,7 +93,7 @@ def visualize_tree_diff(
                     report_lines.append(f"   + Node {node_id}: {node.name} ({node.node_type})")
                     if node.stats:
                         for stat in node.stats:
-                            report_lines.append(f"      └─ {stat}")
+                            report_lines.append(f"      |-- {stat}")
                 else:
                     report_lines.append(f"   + Node {node_id}: (name unknown)")
                 report_lines.append("")
@@ -102,7 +104,7 @@ def visualize_tree_diff(
 
     # Nodes removed
     if nodes_removed:
-        report_lines.append("❌ NODES REMOVED:")
+        report_lines.append("[-] NODES REMOVED:")
         report_lines.append("")
 
         if tree_parser:
@@ -112,7 +114,7 @@ def visualize_tree_diff(
                     report_lines.append(f"   - Node {node_id}: {node.name} ({node.node_type})")
                     if node.stats:
                         for stat in node.stats:
-                            report_lines.append(f"      └─ {stat}")
+                            report_lines.append(f"      |-- {stat}")
                 else:
                     report_lines.append(f"   - Node {node_id}: (name unknown)")
                 report_lines.append("")
@@ -123,7 +125,7 @@ def visualize_tree_diff(
 
     # Mastery changes
     if mastery_changes:
-        report_lines.append("🎯 MASTERY CHANGES:")
+        report_lines.append("[*] MASTERY CHANGES:")
         report_lines.append("")
 
         if tree_parser:
@@ -135,7 +137,7 @@ def visualize_tree_diff(
                     node = tree_parser.get_node(node_id)
                     node_name = node.name if node else f"Node {node_id}"
 
-                    report_lines.append(f"   ✏️  {node_name} (Node {node_id}):")
+                    report_lines.append(f"   {node_name} (Node {node_id}):")
 
                     if old_effect is None:
                         report_lines.append(f"      Added mastery effect {new_effect}")
@@ -159,16 +161,16 @@ def visualize_tree_diff(
                             else:
                                 report_lines.append(f"      New: Effect {new_effect}")
                         else:
-                            report_lines.append(f"      Changed: {old_effect} → {new_effect}")
+                            report_lines.append(f"      Changed: {old_effect} -> {new_effect}")
 
                     report_lines.append("")
             except Exception as e:
                 logger.debug(f"Could not load mastery details: {e}")
                 for node_id, old_effect, new_effect in mastery_changes:
-                    report_lines.append(f"   ✏️  Mastery Node {node_id}: {old_effect} → {new_effect}")
+                    report_lines.append(f"   Mastery Node {node_id}: {old_effect} -> {new_effect}")
         else:
             for node_id, old_effect, new_effect in mastery_changes:
-                report_lines.append(f"   ✏️  Mastery Node {node_id}: {old_effect} → {new_effect}")
+                report_lines.append(f"   Mastery Node {node_id}: {old_effect} -> {new_effect}")
 
         report_lines.append("")
 
@@ -188,7 +190,8 @@ def visualize_tree_diff(
     logger.info(f"Saved tree diff report to {output_file}")
 
     # Also print to console
-    print(report)
+    if not quiet:
+        print(report)
 
     return output_file
 

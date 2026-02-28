@@ -24,6 +24,37 @@ end
 local xmlContent = file:read("*all")
 file:close()
 
+-- Stub missing GUI functions before HeadlessWrapper loads
+-- (HeadlessWrapper stubs GetScreenSize but not GetVirtualScreenSize,
+--  which Launch.lua:DrawPopup calls during init if there's a warning)
+function GetVirtualScreenSize()
+    return 1920, 1080
+end
+
+-- Stub lua-utf8 module for Linux/WSL where the native .so isn't available.
+-- PoB v2.60.0 added require('lua-utf8') in Common.lua for number formatting.
+-- For headless calculations we just need basic string ops, so delegate to Lua's string library.
+if not pcall(require, 'lua-utf8') then
+    package.preload['lua-utf8'] = function()
+        return {
+            reverse = string.reverse,
+            gsub = string.gsub,
+            find = string.find,
+            sub = string.sub,
+            match = string.match,
+            len = string.len,
+            next = function(s, i, offset)
+                if not i then i = 1 end
+                if not offset then offset = 1 end
+                local pos = i + offset
+                if pos < 0 then return nil end
+                if pos > #s + 1 then return nil end
+                return pos
+            end,
+        }
+    end
+end
+
 -- Load HeadlessWrapper
 dofile("HeadlessWrapper.lua")
 

@@ -16,6 +16,7 @@ import base64
 import json
 import logging
 import os
+import select
 import subprocess
 import threading
 import time
@@ -162,12 +163,26 @@ class PoBWorker:
                 self.process.stdin.write(encoded + '\n')
                 self.process.stdin.flush()
 
-                # Read response (with timeout via select would be better)
+                # Read response using select() to avoid indefinite blocking
                 start_time = time.time()
-                while time.time() - start_time < timeout:
+                while True:
+                    elapsed = time.time() - start_time
+                    remaining = timeout - elapsed
+                    if remaining <= 0:
+                        return EvaluationResult(success=False, error="Evaluation timeout")
+
                     if self.process.poll() is not None:
                         self._is_dead = True
                         return EvaluationResult(success=False, error="Worker died")
+
+                    # Use select to wait for data with timeout, preventing
+                    # readline() from blocking indefinitely
+                    ready, _, _ = select.select(
+                        [self.process.stdout], [], [], min(remaining, 1.0)
+                    )
+                    if not ready:
+                        # No data available yet, loop to check timeout/process
+                        continue
 
                     line = self.process.stdout.readline()
                     if not line:
@@ -193,8 +208,6 @@ class PoBWorker:
                         # Skip other JSON (like pong, exit, etc)
                     except json.JSONDecodeError:
                         continue
-
-                return EvaluationResult(success=False, error="Evaluation timeout")
 
             except Exception as e:
                 logger.error(f"Worker {self.worker_id} evaluation error: {e}")
@@ -224,7 +237,18 @@ class PoBWorker:
             self.process.stdin.flush()
 
             start_time = time.time()
-            while time.time() - start_time < timeout:
+            while True:
+                elapsed = time.time() - start_time
+                remaining = timeout - elapsed
+                if remaining <= 0:
+                    return False
+
+                ready, _, _ = select.select(
+                    [self.process.stdout], [], [], min(remaining, 1.0)
+                )
+                if not ready:
+                    continue
+
                 line = self.process.stdout.readline()
                 if line:
                     data = json.loads(line.strip())

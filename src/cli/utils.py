@@ -191,11 +191,11 @@ class OutputHandler:
     def success(self, message: str):
         """Print success message."""
         if not self.quiet:
-            click.secho(f"✓ {message}", fg="green")
+            click.secho(f"[OK] {message}", fg="green")
 
     def error(self, message: str):
         """Print error message."""
-        click.secho(f"✗ {message}", fg="red", err=True)
+        click.secho(f"[FAIL] {message}", fg="red", err=True)
 
     def warning(self, message: str):
         """Print warning message."""

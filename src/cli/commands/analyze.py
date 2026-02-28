@@ -3,9 +3,12 @@ Analyze command - Build statistics and analysis.
 """
 
 import click
+import logging
 from typing import Optional
 
 from ..utils import InputHandler, get_output_handler, common_options, input_argument
+
+logger = logging.getLogger(__name__)
 
 
 @click.command()
@@ -50,14 +53,15 @@ def analyze(
     output.progress(f"Loading build from {input_source}...")
     try:
         build_xml = InputHandler.load(input_source)
-    except Exception as e:
+    except (FileNotFoundError, IOError, ValueError) as e:
         raise click.ClickException(f"Failed to load build: {e}")
 
     # Get stats
     try:
         stats = get_build_summary(build_xml)
         tree_summary = get_passive_tree_summary(build_xml)
-    except Exception as e:
+    except (KeyError, ValueError) as e:
+        logger.debug("Failed to analyze build", exc_info=True)
         raise click.ClickException(f"Failed to analyze build: {e}")
 
     # Get jewel info
@@ -70,6 +74,7 @@ def analyze(
             "unique": len(registry.unique_jewels),
         }
     except Exception:
+        logger.debug("Could not parse jewel information", exc_info=True)
         jewel_info = {"total": 0, "error": "Could not parse jewels"}
 
     # Build result

@@ -21,16 +21,38 @@ class Character:
     level: int
     experience: int
 
+    # Map ascendancy class names to their base class names
+    _ASCENDANCY_TO_BASE = {
+        "Slayer": "Duelist", "Gladiator": "Duelist", "Champion": "Duelist",
+        "Berserker": "Marauder", "Chieftain": "Marauder", "Juggernaut": "Marauder",
+        "Assassin": "Shadow", "Saboteur": "Shadow", "Trickster": "Shadow",
+        "Deadeye": "Ranger", "Raider": "Ranger", "Pathfinder": "Ranger",
+        "Necromancer": "Witch", "Occultist": "Witch", "Elementalist": "Witch",
+        "Inquisitor": "Templar", "Hierophant": "Templar", "Guardian": "Templar",
+        "Warden": "Ranger", "Titan": "Marauder", "Infernalist": "Witch",
+        "Chronomancer": "Templar", "Stormweaver": "Shadow",
+        "Bloodmage": "Witch", "Gemling Legionnaire": "Duelist",
+    }
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Character":
+        class_field = data.get("class", "")
+        # The API may return an ascendancy name in "class" field
+        # (e.g., "Slayer" instead of "Duelist")
+        ascendancy_name = ""
+        class_name = class_field
+        if class_field in cls._ASCENDANCY_TO_BASE:
+            ascendancy_name = class_field
+            class_name = cls._ASCENDANCY_TO_BASE[class_field]
+
         return cls(
             name=data["name"],
-            league=data["league"],
-            class_id=data["classId"],
-            class_name=data["class"],
+            league=data.get("league", ""),
+            class_id=data.get("classId", 0),
+            class_name=class_name,
             ascendancy_class=data.get("ascendancyClass", 0),
-            ascendancy_name=data.get("ascendClassName", ""),
-            level=data["level"],
+            ascendancy_name=ascendancy_name or data.get("ascendClassName", ""),
+            level=data.get("level", 1),
             experience=data.get("experience", 0),
         )
 
@@ -95,7 +117,7 @@ class Item:
             for s in data.get("sockets", [])
         ]
 
-        return cls(
+        item = cls(
             id=data["id"],
             name=data.get("name", ""),
             type_line=data.get("typeLine", ""),
@@ -119,6 +141,9 @@ class Item:
             hunter=data.get("hunter", False),
             warlord=data.get("warlord", False),
         )
+        # Store raw data for access to socketedItems and other fields
+        item._raw_data = data
+        return item
 
     @staticmethod
     def _rarity_from_frame(frame_type: int) -> str:

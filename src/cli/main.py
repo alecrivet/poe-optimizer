@@ -15,17 +15,17 @@ Commands:
 """
 
 import click
-import sys
-from pathlib import Path
 
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Only needed when running directly (not installed as package)
+try:
+    from src import __version__ as VERSION
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from src import __version__ as VERSION
 
 from .commands import optimize, analyze, diff, jewels, codec, setup, account
-
-
-from src import __version__ as VERSION
 
 
 class AliasedGroup(click.Group):
