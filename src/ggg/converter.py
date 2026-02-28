@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
-from ..pob.tree_version import get_latest_tree_version
+from ..pob.tree_version import get_latest_tree_version_or_raise
 import logging
 
 from .models import Character, CharacterItems, PassiveTree, Item
@@ -96,7 +96,7 @@ class ConversionOptions:
 
     def __post_init__(self):
         if self.tree_version is None:
-            self.tree_version = get_latest_tree_version() or "3_27"
+            self.tree_version = get_latest_tree_version_or_raise()
 
 
 class GGGToPoB:

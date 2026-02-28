@@ -59,7 +59,7 @@ class RadiusCalculator:
         Create RadiusCalculator from tree version.
 
         Args:
-            tree_version: Tree version string (e.g., "3_27")
+            tree_version: Tree version string (e.g., "3_28")
 
         Returns:
             RadiusCalculator instance

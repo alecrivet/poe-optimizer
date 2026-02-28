@@ -38,7 +38,7 @@ def discover_tree_versions(pob_path: str = "./PathOfBuilding") -> List[str]:
     """
     Scan TreeData/ for valid tree version directories.
 
-    Returns sorted list of version strings (e.g. ["3_26", "3_26_alternate", "3_27"]).
+    Returns sorted list of version strings (e.g. ["3_26", "3_26_alternate", "3_28"]).
     """
     tree_data_dir = Path(pob_path) / "src" / "TreeData"
     if not tree_data_dir.is_dir():
@@ -63,6 +63,21 @@ def get_latest_tree_version(pob_path: str = "./PathOfBuilding") -> Optional[str]
     versions = discover_tree_versions(pob_path)
     standard = [v for v in versions if _VERSION_PATTERN.match(v) and not _VERSION_PATTERN.match(v).group(3)]
     return standard[-1] if standard else None
+
+
+def get_latest_tree_version_or_raise(pob_path: str = "./PathOfBuilding") -> str:
+    """
+    Return the latest standard tree version, or raise if the submodule is missing.
+
+    Like get_latest_tree_version(), but fails loudly instead of returning None.
+    """
+    version = get_latest_tree_version(pob_path)
+    if version is None:
+        raise RuntimeError(
+            f"No tree versions found in {pob_path}/src/TreeData/. "
+            "Is the PathOfBuilding submodule initialized? Run: git submodule update --init"
+        )
+    return version
 
 
 def get_tree_version_from_xml(build_xml: str) -> Optional[str]:

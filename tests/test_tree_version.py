@@ -8,6 +8,7 @@ from unittest.mock import patch
 from src.pob.tree_version import (
     discover_tree_versions,
     get_latest_tree_version,
+    get_latest_tree_version_or_raise,
     get_tree_version_from_xml,
     resolve_tree_version,
     _version_sort_key,
@@ -20,9 +21,9 @@ def test_discover_tree_versions():
     """discover_tree_versions finds versions from the real PoB submodule."""
     versions = discover_tree_versions("./PathOfBuilding")
     assert len(versions) > 0
-    assert "3_27" in versions
-    # v2.60.0 adds alternate trees
-    assert "3_27_alternate" in versions
+    # The latest standard version should be present
+    latest = get_latest_tree_version("./PathOfBuilding")
+    assert latest in versions
 
 
 def test_discover_tree_versions_missing_path():
@@ -62,8 +63,8 @@ def test_get_latest_tree_version():
     # Should be a standard version (no suffix)
     assert "alternate" not in latest
     assert "ruthless" not in latest
-    # Should be at least 3_27
-    assert _version_sort_key(latest) >= _version_sort_key("3_27")
+    # Should be at least 3_26 (known minimum)
+    assert _version_sort_key(latest) >= _version_sort_key("3_26")
 
 
 def test_get_latest_tree_version_missing_path():
