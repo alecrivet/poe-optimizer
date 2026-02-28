@@ -16,6 +16,12 @@ from dataclasses import dataclass
 from .worker_pool import PoBWorkerPool, EvaluationResult
 from .xml_parser import get_build_summary
 from .relative_calculator import RelativeEvaluation
+from .calculator_utils import (
+    extract_build_stats,
+    calculate_ratios,
+    build_evaluation_from_accurate_stats,
+    build_evaluation_from_lua,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +49,7 @@ class BatchCalculator:
         self,
         num_workers: Optional[int] = None,
         calibration_factor: float = 1.0,
+        dps_mode: str = "combined",
     ):
         """
         Initialize the batch calculator.
@@ -50,11 +57,15 @@ class BatchCalculator:
         Args:
             num_workers: Number of worker processes (defaults to CPU count)
             calibration_factor: Adjustment factor for ratio extrapolation
+            dps_mode: Which DPS metric to use. "combined" for main skill only,
+                      "full" for sum of all skills (useful when supports deal
+                      their own damage, e.g. Shockwave).
         """
         self.pool = PoBWorkerPool(num_workers=num_workers)
         self.calibration_factor = calibration_factor
+        self.dps_mode = dps_mode
         self._started = False
-        logger.info(f"Initialized BatchCalculator (workers: {self.pool.num_workers})")
+        logger.info(f"Initialized BatchCalculator (workers: {self.pool.num_workers}, dps_mode: {dps_mode})")
 
     def start(self) -> int:
         """
@@ -98,31 +109,13 @@ class BatchCalculator:
             self.start()
 
         # Get accurate baseline from original XML
-        baseline_accurate = get_build_summary(original_xml)
-        baseline_dps = baseline_accurate.get('combinedDPS', 0)
-        baseline_life = baseline_accurate.get('life', 0)
-        baseline_ehp = baseline_accurate.get('totalEHP', 0)
+        baseline_accurate = extract_build_stats(get_build_summary(original_xml), self.dps_mode)
 
         # Try to get stats from modified XML first
-        modified_accurate = get_build_summary(modified_xml)
-        if modified_accurate.get('combinedDPS', 0) > 0 and not use_lua_fallback:
+        modified_accurate = extract_build_stats(get_build_summary(modified_xml), self.dps_mode)
+        if modified_accurate.dps > 0 and not use_lua_fallback:
             # Modified XML has accurate stats, use them directly
-            return RelativeEvaluation(
-                baseline_dps=baseline_dps,
-                baseline_life=baseline_life,
-                baseline_ehp=baseline_ehp,
-                estimated_dps=modified_accurate.get('combinedDPS', 0),
-                estimated_life=modified_accurate.get('life', 0),
-                estimated_ehp=modified_accurate.get('totalEHP', 0),
-                dps_ratio=modified_accurate.get('combinedDPS', 0) / baseline_dps if baseline_dps else 1.0,
-                life_ratio=modified_accurate.get('life', 0) / baseline_life if baseline_life else 1.0,
-                ehp_ratio=modified_accurate.get('totalEHP', 0) / baseline_ehp if baseline_ehp else 1.0,
-                dps_change_percent=(modified_accurate.get('combinedDPS', 0) / baseline_dps - 1) * 100 if baseline_dps else 0,
-                life_change_percent=(modified_accurate.get('life', 0) / baseline_life - 1) * 100 if baseline_life else 0,
-                ehp_change_percent=(modified_accurate.get('totalEHP', 0) / baseline_ehp - 1) * 100 if baseline_ehp else 0,
-                baseline_lua_dps=baseline_dps,
-                modified_lua_dps=modified_accurate.get('combinedDPS', 0),
-            )
+            return build_evaluation_from_accurate_stats(baseline_accurate, modified_accurate)
 
         # Evaluate both builds using worker pool
         baseline_result = self.pool.evaluate(original_xml)
@@ -133,50 +126,11 @@ class BatchCalculator:
         if not modified_result.success:
             raise RuntimeError(f"Failed to evaluate modified: {modified_result.error}")
 
-        baseline_lua = baseline_result.stats
-        modified_lua = modified_result.stats
+        baseline_lua = extract_build_stats(baseline_result.stats, self.dps_mode)
+        modified_lua = extract_build_stats(modified_result.stats, self.dps_mode)
 
-        baseline_lua_dps = baseline_lua.get('combinedDPS', 0)
-        baseline_lua_life = baseline_lua.get('life', 0)
-        baseline_lua_ehp = baseline_lua.get('totalEHP', 0)
-
-        modified_lua_dps = modified_lua.get('combinedDPS', 0)
-        modified_lua_life = modified_lua.get('life', 0)
-        modified_lua_ehp = modified_lua.get('totalEHP', 0)
-
-        # Calculate ratios
-        dps_ratio = (modified_lua_dps / baseline_lua_dps * self.calibration_factor
-                     if baseline_lua_dps > 0 else 1.0)
-        life_ratio = (modified_lua_life / baseline_lua_life
-                      if baseline_lua_life > 0 else 1.0)
-        ehp_ratio = (modified_lua_ehp / baseline_lua_ehp
-                     if baseline_lua_ehp > 0 else 1.0)
-
-        # Extrapolate estimated real stats
-        estimated_dps = baseline_dps * dps_ratio
-        estimated_life = baseline_life * life_ratio
-        estimated_ehp = baseline_ehp * ehp_ratio
-
-        # Calculate percent changes
-        dps_change = (dps_ratio - 1) * 100
-        life_change = (life_ratio - 1) * 100
-        ehp_change = (ehp_ratio - 1) * 100
-
-        return RelativeEvaluation(
-            baseline_dps=baseline_dps,
-            baseline_life=baseline_life,
-            baseline_ehp=baseline_ehp,
-            estimated_dps=estimated_dps,
-            estimated_life=estimated_life,
-            estimated_ehp=estimated_ehp,
-            dps_ratio=dps_ratio,
-            life_ratio=life_ratio,
-            ehp_ratio=ehp_ratio,
-            dps_change_percent=dps_change,
-            life_change_percent=life_change,
-            ehp_change_percent=ehp_change,
-            baseline_lua_dps=baseline_lua_dps,
-            modified_lua_dps=modified_lua_dps,
+        return build_evaluation_from_lua(
+            baseline_accurate, baseline_lua, modified_lua, self.calibration_factor
         )
 
     def evaluate_batch(
@@ -201,20 +155,14 @@ class BatchCalculator:
             self.start()
 
         # Get accurate baseline from original XML
-        baseline_accurate = get_build_summary(original_xml)
-        baseline_dps = baseline_accurate.get('combinedDPS', 0)
-        baseline_life = baseline_accurate.get('life', 0)
-        baseline_ehp = baseline_accurate.get('totalEHP', 0)
+        baseline_accurate = extract_build_stats(get_build_summary(original_xml), self.dps_mode)
 
         # First, evaluate baseline
         baseline_result = self.pool.evaluate(original_xml)
         if not baseline_result.success:
             raise RuntimeError(f"Failed to evaluate baseline: {baseline_result.error}")
 
-        baseline_lua = baseline_result.stats
-        baseline_lua_dps = baseline_lua.get('combinedDPS', 0)
-        baseline_lua_life = baseline_lua.get('life', 0)
-        baseline_lua_ehp = baseline_lua.get('totalEHP', 0)
+        baseline_lua = extract_build_stats(baseline_result.stats, self.dps_mode)
 
         # Evaluate all modifications in parallel
         names = list(modifications.keys())
@@ -228,34 +176,24 @@ class BatchCalculator:
                 logger.warning(f"Failed to evaluate {name}: {result.error}")
                 continue
 
-            modified_lua = result.stats
-            modified_lua_dps = modified_lua.get('combinedDPS', 0)
-            modified_lua_life = modified_lua.get('life', 0)
-            modified_lua_ehp = modified_lua.get('totalEHP', 0)
-
-            # Calculate ratios
-            dps_ratio = (modified_lua_dps / baseline_lua_dps * self.calibration_factor
-                         if baseline_lua_dps > 0 else 1.0)
-            life_ratio = (modified_lua_life / baseline_lua_life
-                          if baseline_lua_life > 0 else 1.0)
-            ehp_ratio = (modified_lua_ehp / baseline_lua_ehp
-                         if baseline_lua_ehp > 0 else 1.0)
+            modified_lua = extract_build_stats(result.stats, self.dps_mode)
+            ratios = calculate_ratios(baseline_lua, modified_lua, self.calibration_factor)
 
             evaluations[name] = RelativeEvaluation(
-                baseline_dps=baseline_dps,
-                baseline_life=baseline_life,
-                baseline_ehp=baseline_ehp,
-                estimated_dps=baseline_dps * dps_ratio,
-                estimated_life=baseline_life * life_ratio,
-                estimated_ehp=baseline_ehp * ehp_ratio,
-                dps_ratio=dps_ratio,
-                life_ratio=life_ratio,
-                ehp_ratio=ehp_ratio,
-                dps_change_percent=(dps_ratio - 1) * 100,
-                life_change_percent=(life_ratio - 1) * 100,
-                ehp_change_percent=(ehp_ratio - 1) * 100,
-                baseline_lua_dps=baseline_lua_dps,
-                modified_lua_dps=modified_lua_dps,
+                baseline_dps=baseline_accurate.dps,
+                baseline_life=baseline_accurate.life,
+                baseline_ehp=baseline_accurate.ehp,
+                estimated_dps=baseline_accurate.dps * ratios.dps,
+                estimated_life=baseline_accurate.life * ratios.life,
+                estimated_ehp=baseline_accurate.ehp * ratios.ehp,
+                dps_ratio=ratios.dps,
+                life_ratio=ratios.life,
+                ehp_ratio=ratios.ehp,
+                dps_change_percent=(ratios.dps - 1) * 100,
+                life_change_percent=(ratios.life - 1) * 100,
+                ehp_change_percent=(ratios.ehp - 1) * 100,
+                baseline_lua_dps=baseline_lua.dps,
+                modified_lua_dps=modified_lua.dps,
             )
 
         return evaluations
