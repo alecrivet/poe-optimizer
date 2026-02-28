@@ -1,3 +1,4 @@
 [submodule "PathOfBuilding"]
 	path = PathOfBuilding
 	url = https://github.com/PathOfBuildingCommunity/PathOfBuilding.git
+	ignore = dirty
