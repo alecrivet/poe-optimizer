@@ -391,7 +391,7 @@ def format_pareto_frontier(frontier: ParetoFrontier) -> str:
     # Extreme points
     extremes = frontier.get_extreme_points()
 
-    lines.append(f"\n🎯 Extreme Points:")
+    lines.append(f"\n[BEST] Extreme Points:")
     if 'max_dps' in extremes:
         ind = extremes['max_dps']
         lines.append(
@@ -426,7 +426,7 @@ def format_pareto_frontier(frontier: ParetoFrontier) -> str:
         )
 
     # All solutions sorted by DPS
-    lines.append(f"\n📊 All Solutions (sorted by DPS):")
+    lines.append(f"\nAll Solutions (sorted by DPS):")
     sorted_individuals = sorted(
         frontier.individuals,
         key=lambda x: x.score.dps_percent,

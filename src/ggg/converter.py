@@ -14,6 +14,9 @@ import logging
 
 from .models import Character, CharacterItems, PassiveTree, Item
 
+# Lazy-loaded gem database for resolving gem IDs
+_gem_db = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -132,6 +135,7 @@ class GGGToPoB:
         root = ET.Element("PathOfBuilding")
 
         # Build section
+        self._main_socket_group = 1
         build_elem = self._create_build_element(character)
         root.append(build_elem)
 
@@ -139,9 +143,12 @@ class GGGToPoB:
         tree_elem = self._create_tree_element(character, passives)
         root.append(tree_elem)
 
-        # Skills section (placeholder)
-        skills_elem = self._create_skills_element()
+        # Skills section (populated from item socket data)
+        skills_elem = self._create_skills_element(items)
         root.append(skills_elem)
+
+        # Update mainSocketGroup based on gem extraction
+        build_elem.set("mainSocketGroup", str(self._main_socket_group))
 
         # Items section
         if items and self.options.include_items:
@@ -163,13 +170,18 @@ class GGGToPoB:
 
     def _create_build_element(self, character: Character) -> ET.Element:
         """Create the <Build> element with character info."""
-        class_name, pob_class_id = CLASS_MAP.get(
-            character.class_id, ("Scion", 7)
-        )
-
-        ascendancy_name = ASCENDANCY_MAP.get(
-            (character.class_id, character.ascendancy_class), ""
-        )
+        # Try class_id mapping first (if API returned it)
+        if character.class_id > 0:
+            class_name, pob_class_id = CLASS_MAP.get(
+                character.class_id, ("Scion", 7)
+            )
+            ascendancy_name = ASCENDANCY_MAP.get(
+                (character.class_id, character.ascendancy_class), ""
+            )
+        else:
+            # Fall back to name-based detection from Character model
+            class_name = character.class_name or "Scion"
+            ascendancy_name = character.ascendancy_name or ""
 
         build = ET.Element("Build")
         build.set("level", str(character.level))
@@ -195,9 +207,18 @@ class GGGToPoB:
         spec.set("treeVersion", self.options.tree_version)
 
         # Class info for tree
-        class_name, pob_class_id = CLASS_MAP.get(
-            character.class_id, ("Scion", 7)
-        )
+        if character.class_id > 0:
+            class_name, pob_class_id = CLASS_MAP.get(
+                character.class_id, ("Scion", 7)
+            )
+        else:
+            # Reverse lookup: find class_id from class_name
+            class_name = character.class_name or "Scion"
+            pob_class_id = 7  # Default to Scion
+            for ggg_id, (name, pob_id) in CLASS_MAP.items():
+                if name == class_name:
+                    pob_class_id = pob_id
+                    break
         spec.set("classId", str(pob_class_id))
         spec.set("ascendClassId", str(character.ascendancy_class))
 
@@ -231,8 +252,15 @@ class GGGToPoB:
 
         return tree
 
-    def _create_skills_element(self) -> ET.Element:
-        """Create the <Skills> element (placeholder)."""
+    def _create_skills_element(
+        self, items: Optional[CharacterItems] = None
+    ) -> ET.Element:
+        """
+        Create the <Skills> element from item socket data.
+
+        Extracts gems from each item's socketedItems, groups them by
+        socket group (linked sockets), and creates PoB Skill/Gem elements.
+        """
         skills = ET.Element("Skills")
         skills.set("activeSkillSet", "1")
         skills.set("defaultGemLevel", str(self.options.default_gem_level))
@@ -241,7 +269,136 @@ class GGGToPoB:
         skill_set = ET.SubElement(skills, "SkillSet")
         skill_set.set("id", "1")
 
+        if not items:
+            return skills
+
+        main_group_idx = 0  # Track which group has the most gems (likely main skill)
+        max_gems = 0
+        group_counter = 0
+
+        for item in items.items:
+            if not item.inventory_id:
+                continue
+
+            # Get raw item data to access socketedItems
+            # We need to get this from the original API data
+            raw_data = getattr(item, '_raw_data', None)
+            if raw_data is None:
+                continue
+
+            socketed_items = raw_data.get("socketedItems", [])
+            if not socketed_items:
+                continue
+
+            # Group gems by socket group (linked sockets)
+            socket_groups: Dict[int, List[Dict]] = {}
+            for gem_data in socketed_items:
+                socket_idx = gem_data.get("socket", 0)
+                # Find which socket group this gem belongs to
+                gem_group = self._get_socket_group(item, socket_idx)
+                if gem_group not in socket_groups:
+                    socket_groups[gem_group] = []
+                socket_groups[gem_group].append(gem_data)
+
+            pob_slot = SLOT_MAP.get(item.inventory_id, item.inventory_id)
+
+            for group_id in sorted(socket_groups.keys()):
+                gems = socket_groups[group_id]
+                group_counter += 1
+
+                skill_elem = ET.SubElement(skill_set, "Skill")
+                skill_elem.set("slot", pob_slot)
+                skill_elem.set("enabled", "true")
+                skill_elem.set("label", "")
+                skill_elem.set("mainActiveSkill", "1")
+                skill_elem.set("includeInFullDPS", "nil")
+
+                for gem_data in gems:
+                    gem_elem = self._gem_to_xml(gem_data)
+                    skill_elem.append(gem_elem)
+
+                # Track the group with the most gems as the main skill
+                # Prefer body armour (most common main skill slot) on ties
+                is_body = pob_slot == "Body Armour"
+                score = len(gems) + (1 if is_body else 0)
+                if score > max_gems:
+                    max_gems = score
+                    main_group_idx = group_counter
+
+        # Update mainSocketGroup on the Build element later
+        self._main_socket_group = main_group_idx
+
+        logger.info(f"Created {group_counter} skill groups from equipped gems")
+
         return skills
+
+    def _get_socket_group(self, item: Item, socket_idx: int) -> int:
+        """Get the socket group number for a given socket index."""
+        if not item.sockets or socket_idx >= len(item.sockets):
+            return 0
+        return item.sockets[socket_idx].group
+
+    def _gem_to_xml(self, gem_data: Dict[str, Any]) -> ET.Element:
+        """Convert a GGG gem JSON object to a PoB <Gem> XML element."""
+        global _gem_db
+
+        gem = ET.Element("Gem")
+
+        gem_name = gem_data.get("typeLine", "")
+        gem.set("nameSpec", gem_name)
+        gem.set("enabled", "true")
+
+        # Extract level and quality from properties
+        level = self.options.default_gem_level
+        quality = 0
+        for prop in gem_data.get("properties", []):
+            if prop["name"] == "Level":
+                try:
+                    # Format: [["20 (Max)", 0]] or [["20", 0]]
+                    level_str = prop["values"][0][0].split(" ")[0]
+                    level = int(level_str)
+                except (IndexError, ValueError):
+                    pass
+            elif prop["name"] == "Quality":
+                try:
+                    # Format: [["+20%", 1]]
+                    qual_str = prop["values"][0][0].replace("+", "").replace("%", "")
+                    quality = int(qual_str)
+                except (IndexError, ValueError):
+                    pass
+
+        gem.set("level", str(level))
+        gem.set("quality", str(quality))
+
+        # Resolve gem IDs from the GemDatabase for PoB compatibility
+        # PoB needs gemId, variantId, and skillId to evaluate gems correctly
+        if _gem_db is None:
+            try:
+                from ..pob.gem_database import GemDatabase
+                _gem_db = GemDatabase.from_pob_data()
+            except Exception as e:
+                logger.debug(f"Could not load GemDatabase: {e}")
+                _gem_db = False  # Sentinel to avoid retrying
+
+        if _gem_db:
+            # Try exact name match, then without " Support" suffix,
+            # then baseType (GGG API appends " Support" to support gem names
+            # but PoB's Gems.lua omits it)
+            db_gem = _gem_db.get_gem_by_name(gem_name)
+            if not db_gem and gem_name.endswith(" Support"):
+                db_gem = _gem_db.get_gem_by_name(gem_name[:-8])
+            if not db_gem:
+                base_type = gem_data.get("baseType", "")
+                db_gem = _gem_db.get_gem_by_name(base_type)
+                if not db_gem and base_type.endswith(" Support"):
+                    db_gem = _gem_db.get_gem_by_name(base_type[:-8])
+            if db_gem:
+                gem.set("nameSpec", db_gem.name)  # Use canonical PoB name
+                gem.set("gemId", db_gem.game_id)
+                gem.set("variantId", db_gem.variant_id)
+                gem.set("skillId", db_gem.granted_effect_id)
+
+        return gem
 
     def _create_items_element(self, items: CharacterItems) -> ET.Element:
         """Create the <Items> element with equipped gear."""

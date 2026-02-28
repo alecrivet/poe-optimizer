@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash /mnt/c/users/alecr/documents/projects/poe-optimizer/.claude/statusline-command.sh"
+  }
+}
