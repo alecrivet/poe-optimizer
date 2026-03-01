@@ -12,10 +12,12 @@ import sys
 import os
 import time
 import logging
+from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.pob.codec import decode_pob_code
+from src.pob.codec import decode_pob_code, encode_pob_code
 from src.pob.gem_database import GemDatabase, GemClassification
 from src.pob.modifier import get_main_skill_info, get_skill_groups_summary, replace_support_gem
 from src.pob.xml_parser import get_build_summary
@@ -200,6 +202,35 @@ def main():
                 used_names.add(best[0])
                 group['gems'][support_idx]['name'] = best[0]
                 print(f"  ** Applied swap, updated state for next slots **")
+
+    # Save results
+    project_root = Path(__file__).parent.parent
+    output_dir = project_root / "output"
+    xml_path, pob_path, pob_code = save_result(build_xml, output_dir)
+
+    print(f"\n{'='*70}")
+    print("Output")
+    print(f"{'='*70}")
+    print(f"  XML:  {xml_path}")
+    print(f"  PoB:  {pob_path}")
+    print(f"\nPoB Code:\n{pob_code}")
+
+
+def save_result(build_xml: str, output_dir: Path):
+    """Save optimized build XML and PoB code to output directory."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    xml_path = output_dir / f"gem_optimizer_cyclone_{timestamp}.xml"
+    with open(xml_path, "w") as f:
+        f.write(build_xml)
+
+    pob_code = encode_pob_code(build_xml)
+    pob_path = output_dir / f"gem_optimizer_cyclone_{timestamp}.txt"
+    with open(pob_path, "w") as f:
+        f.write(pob_code)
+
+    return xml_path, pob_path, pob_code
 
 
 if __name__ == "__main__":
