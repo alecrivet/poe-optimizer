@@ -9,10 +9,12 @@ import sys
 import os
 import time
 import logging
+from datetime import datetime
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.pob.codec import decode_pob_code
+from src.pob.codec import decode_pob_code, encode_pob_code
 from src.pob.gem_database import GemDatabase
 from src.pob.modifier import get_main_skill_info, replace_support_gem
 from src.pob.caller import PoBCalculator
@@ -134,6 +136,37 @@ def main():
         if any_improvement:
             best_name, best_pct = results[0]
             print(f"  Best swap: {current_gem['name']} -> {best_name} ({best_pct:+.2f}%)")
+
+            # Apply best swap and save result
+            best_info = gem_db.get_support_by_name(best_name)
+            optimized_xml = replace_support_gem(
+                build_xml,
+                socket_group_idx=group['index'],
+                gem_idx=target_slot,
+                new_gem_name=best_info.name,
+                new_game_id=best_info.game_id,
+                new_variant_id=best_info.variant_id,
+                new_skill_id=best_info.granted_effect_id,
+                level=best_info.max_level,
+                quality=20,
+            )
+            project_root = Path(__file__).parent.parent
+            output_dir = project_root / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            xml_path = output_dir / f"gem_optimizer_e2e_{timestamp}.xml"
+            with open(xml_path, "w") as f:
+                f.write(optimized_xml)
+
+            pob_code = encode_pob_code(optimized_xml)
+            pob_path = output_dir / f"gem_optimizer_e2e_{timestamp}.txt"
+            with open(pob_path, "w") as f:
+                f.write(pob_code)
+
+            print(f"\n  Saved: {xml_path}")
+            print(f"  Saved: {pob_path}")
+            print(f"\nPoB Code:\n{pob_code}")
         print("  The gem optimizer pipeline is WORKING.")
     else:
         print("VERDICT: No DPS differences detected. Something is wrong.")
