@@ -406,6 +406,82 @@ class TestJewelConstraintValidator:
         assert error is None
 
 
+class TestDynamicOuterSocketClassification:
+    """Test dynamic outer jewel socket classification from tree data."""
+
+    def test_get_outer_jewel_sockets_from_tree(self):
+        """Test that get_outer_jewel_sockets() returns root-level sockets from tree data."""
+        from src.pob.tree_parser import load_passive_tree
+        from src.pob.jewel.base import OUTER_JEWEL_SOCKETS
+
+        tree = load_passive_tree()
+
+        if not tree.nodes:
+            pytest.skip("Tree data not available (PathOfBuilding submodule not loaded)")
+
+        dynamic_outer = tree.get_outer_jewel_sockets()
+
+        # Should return a non-empty set of root-level sockets
+        assert len(dynamic_outer) > 0, "Should find at least some root-level sockets"
+
+        # Dynamic set should be a superset of the hardcoded set minus child sockets
+        # (hardcoded set included some child sockets like 12613, 46519)
+        hardcoded_root = {nid for nid in OUTER_JEWEL_SOCKETS
+                         if nid not in tree.expansion_jewel_data
+                         or 'parent' not in tree.expansion_jewel_data.get(nid, {})}
+        assert hardcoded_root.issubset(dynamic_outer), (
+            f"Hardcoded root sockets {hardcoded_root - dynamic_outer} missing from dynamic set"
+        )
+
+    def test_expansion_jewel_data_parsed(self):
+        """Test that expansion jewel data is parsed from tree."""
+        from src.pob.tree_parser import load_passive_tree
+
+        tree = load_passive_tree()
+
+        if not tree.nodes:
+            pytest.skip("Tree data not available")
+
+        # Should have parsed some expansion jewel data
+        assert len(tree.expansion_jewel_data) > 0, "Should have parsed expansion jewel data"
+
+        # Check that size=2 entries exist (large cluster sockets)
+        large_sockets = [nid for nid, data in tree.expansion_jewel_data.items()
+                        if data.get('size') == 2]
+        assert len(large_sockets) > 0, "Should find some large cluster sockets"
+
+    def test_get_outer_jewel_sockets_via_loader(self):
+        """Test the get_outer_jewel_sockets() loader function with and without tree."""
+        from src.pob.jewel.base import get_outer_jewel_sockets, OUTER_JEWEL_SOCKETS
+
+        # Without tree_graph, should return hardcoded constant
+        result = get_outer_jewel_sockets(tree_graph=None)
+        assert result == OUTER_JEWEL_SOCKETS
+
+    def test_socket_discovery_uses_dynamic_sockets(self):
+        """Test that SocketDiscovery picks up dynamically computed sockets."""
+        from src.pob.tree_parser import load_passive_tree
+
+        tree = load_passive_tree()
+
+        if not tree.nodes:
+            pytest.skip("Tree data not available")
+
+        discovery = SocketDiscovery(tree)
+
+        # Instance should have non-empty outer sockets
+        assert len(discovery.outer_rim_sockets) > 10
+
+        # Discovered sockets should classify expansion sockets with size=2 as LARGE_CLUSTER
+        sockets = discovery.discover_all_sockets()
+        for nid, data in tree.expansion_jewel_data.items():
+            if data.get('size') == 2 and 'parent' not in data:
+                if nid in sockets:
+                    assert sockets[nid].socket_type == SocketType.LARGE_CLUSTER, (
+                        f"Socket {nid} with expansion size=2 should be LARGE_CLUSTER"
+                    )
+
+
 class TestSocketOptimizerIntegration:
     """Integration tests for socket optimizer"""
 

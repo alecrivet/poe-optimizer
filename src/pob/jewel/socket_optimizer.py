@@ -8,7 +8,7 @@ respecting jewel-specific constraints (timeless immutability, cluster sizing).
 from enum import Enum
 from dataclasses import dataclass
 from typing import Set, Dict, List, Optional, Tuple
-from .base import BaseJewel, JewelCategory, OUTER_JEWEL_SOCKETS
+from .base import BaseJewel, JewelCategory, OUTER_JEWEL_SOCKETS, get_outer_jewel_sockets
 from .timeless import TimelessJewel
 from .cluster import ClusterJewel, ClusterJewelSize, CLUSTER_NODE_MIN_ID
 from .unique import UniqueJewel
@@ -104,7 +104,7 @@ class SocketDiscovery:
     Discovers and classifies all jewel sockets on the passive tree.
     """
 
-    # Use canonical outer socket IDs from base module
+    # Keep class-level constant for backwards compatibility (tests, etc.)
     OUTER_RIM_SOCKETS = OUTER_JEWEL_SOCKETS
 
     def __init__(self, tree_graph):
@@ -116,6 +116,8 @@ class SocketDiscovery:
         """
         self.tree_graph = tree_graph
         self._socket_cache: Optional[Dict[int, JewelSocketState]] = None
+        # Dynamically compute outer sockets from tree data, with hardcoded fallback
+        self.outer_rim_sockets: Set[int] = get_outer_jewel_sockets(tree_graph)
 
     def discover_all_sockets(self) -> Dict[int, JewelSocketState]:
         """
@@ -141,7 +143,7 @@ class SocketDiscovery:
             socket = JewelSocketState(
                 node_id=node_id,
                 socket_type=socket_type,
-                is_outer_rim=(node_id in self.OUTER_RIM_SOCKETS),
+                is_outer_rim=(node_id in self.outer_rim_sockets),
                 position=self._get_node_position(node_data),
             )
 
@@ -173,6 +175,9 @@ class SocketDiscovery:
         """
         Classify the type of jewel socket.
 
+        Uses expansionJewel data from tree.lua when available for accurate
+        classification, falling back to ID-range heuristics for cluster nodes.
+
         Args:
             node_id: Socket node ID
             node_data: Either a dict or a PassiveNode object
@@ -183,7 +188,6 @@ class SocketDiscovery:
         # Cluster nodes have IDs >= CLUSTER_NODE_MIN_ID
         if node_id >= CLUSTER_NODE_MIN_ID:
             # Determine cluster size based on node properties or ID range
-            # This is a simplified classification - actual logic may vary
             if node_id < LARGE_CLUSTER_NODE_MAX_ID:
                 return SocketType.LARGE_CLUSTER
             elif node_id < MEDIUM_CLUSTER_NODE_MAX_ID:
@@ -191,8 +195,20 @@ class SocketDiscovery:
             else:
                 return SocketType.SMALL_CLUSTER
 
-        # Outer rim sockets can hold large clusters
-        if node_id in self.OUTER_RIM_SOCKETS:
+        # Check expansion jewel data if available on the tree graph
+        if hasattr(self.tree_graph, 'expansion_jewel_data'):
+            exp_data = self.tree_graph.expansion_jewel_data.get(node_id)
+            if exp_data is not None:
+                size = exp_data.get('size')
+                if size == 2:
+                    return SocketType.LARGE_CLUSTER
+                elif size == 1:
+                    return SocketType.MEDIUM_CLUSTER
+                elif size == 0:
+                    return SocketType.SMALL_CLUSTER
+
+        # Outer rim sockets can hold large clusters (fallback for mocks/old data)
+        if node_id in self.outer_rim_sockets:
             return SocketType.LARGE_CLUSTER
 
         # Default to regular socket

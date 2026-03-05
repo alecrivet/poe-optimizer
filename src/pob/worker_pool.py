@@ -273,8 +273,8 @@ class PoBWorker:
                         self.process.stdin.write("EXIT\n")
                         self.process.stdin.flush()
                         self.process.wait(timeout=2.0)
-                    except Exception:
-                        pass
+                    except (OSError, BrokenPipeError, subprocess.TimeoutExpired):
+                        logger.debug(f"Worker {self.worker_id} graceful exit failed, will force kill")
 
                     # Force kill if still running
                     if self.process.poll() is None:

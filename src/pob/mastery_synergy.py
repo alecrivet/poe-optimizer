@@ -112,7 +112,8 @@ class MasterySynergyDetector:
                     build_xml, combined_xml
                 )
                 combined_score = self._get_score(combined_result, objective)
-            except Exception:
+            except (RuntimeError, OSError, ValueError) as e:
+                logger.debug(f"Failed to evaluate combined effect ({eff1}, {eff2}): {e}")
                 continue
 
             individual_sum = individual_scores.get(eff1, 0) + individual_scores.get(eff2, 0)
