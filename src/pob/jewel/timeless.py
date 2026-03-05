@@ -457,8 +457,8 @@ def _extract_allocated_nodes(build_xml: str) -> Set[int]:
                 if node_id and node_id.isdigit():
                     allocated.add(int(node_id))
 
-    except Exception:
-        pass
+    except ET.ParseError as e:
+        logging.getLogger(__name__).warning(f"Failed to parse build XML for allocated nodes: {e}")
 
     return allocated
 

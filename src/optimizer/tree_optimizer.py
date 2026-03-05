@@ -22,7 +22,7 @@ Features:
 
 import logging
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, BrokenExecutor, as_completed
 from typing import Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass
 
@@ -80,7 +80,7 @@ def _evaluate_candidate(args: Tuple[str, str, str]) -> Tuple[str, str, Optional[
         calculator = RelativeCalculator()
         eval_result = calculator.evaluate_modification(baseline_xml, modified_xml)
         return (name, modified_xml, eval_result)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.debug(f"Failed to evaluate candidate {name}: {e}")
         return (name, modified_xml, None)
 
@@ -219,7 +219,7 @@ class GreedyTreeOptimizer:
                     self.radius_calculator, self.tree_graph
                 )
                 logger.info(f"Thread of Hope optimizer ready ({len(positions)} node positions)")
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"Failed to initialize Thread of Hope optimizer: {e}")
                 self.radius_calculator = None
                 self.thread_of_hope_optimizer = None
@@ -295,7 +295,7 @@ class GreedyTreeOptimizer:
                     f"{self.build_context.attack_or_spell}, "
                     f"defense: {self.build_context.defense_style}"
                 )
-            except Exception as e:
+            except (ValueError, KeyError, AttributeError) as e:
                 logger.warning(f"Failed to extract build context: {e}")
                 self.build_context = None
 
@@ -387,7 +387,7 @@ class GreedyTreeOptimizer:
 
                     if self.show_progress:
                         candidate_pbar.close()
-                except Exception as e:
+                except (RuntimeError, OSError, BrokenExecutor) as e:
                     logger.error(f"Batch evaluation failed: {e}")
                     if self.show_progress and 'candidate_pbar' in locals():
                         candidate_pbar.close()
@@ -407,7 +407,7 @@ class GreedyTreeOptimizer:
                     try:
                         eval_result = self.calculator.evaluate_modification(build_xml, modified_xml)
                         evaluations[name] = (modified_xml, eval_result)
-                    except Exception as e:
+                    except (RuntimeError, OSError, ValueError) as e:
                         logger.debug(f"Failed to evaluate {name}: {e}")
             else:
                 # Parallel evaluation using ProcessPoolExecutor
@@ -441,7 +441,7 @@ class GreedyTreeOptimizer:
                                 evaluations[result_name] = (modified_xml, eval_result)
                             else:
                                 logger.debug(f"Skipping failed candidate: {result_name}")
-                        except Exception as e:
+                        except (RuntimeError, OSError, BrokenExecutor) as e:
                             logger.debug(f"Exception evaluating {name}: {e}")
 
                         if candidate_pbar:
@@ -595,7 +595,7 @@ class GreedyTreeOptimizer:
                     batch_calculator=self.batch_calculator
                 )
                 logger.debug("Used batch calculator for mastery evaluation")
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"Batch mastery evaluation failed, using heuristics: {e}")
                 optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
                     allocated_nodes=allocated_nodes,
@@ -696,7 +696,7 @@ class GreedyTreeOptimizer:
                 # Only add if it's different from current
                 if mastery_optimized != current_xml:
                     candidates["Optimize mastery selections"] = mastery_optimized
-            except Exception as e:
+            except (ValueError, RuntimeError) as e:
                 logger.debug(f"Failed to optimize masteries: {e}")
 
         # Try jewel socket swaps (if enabled)
@@ -708,7 +708,7 @@ class GreedyTreeOptimizer:
                     objective
                 )
                 candidates.update(jewel_swap_candidates)
-            except Exception as e:
+            except (ValueError, RuntimeError) as e:
                 logger.debug(f"Failed to generate jewel swap candidates: {e}")
 
             # Try Thread of Hope placement candidates
@@ -720,7 +720,7 @@ class GreedyTreeOptimizer:
                         objective
                     )
                     candidates.update(toh_candidates)
-                except Exception as e:
+                except (ValueError, RuntimeError) as e:
                     logger.debug(f"Failed to generate Thread of Hope candidates: {e}")
 
             # Try cluster notable reallocation candidates
@@ -732,7 +732,7 @@ class GreedyTreeOptimizer:
                         objective
                     )
                     candidates.update(cluster_candidates)
-                except Exception as e:
+                except (ValueError, RuntimeError) as e:
                     logger.debug(f"Failed to generate cluster candidates: {e}")
 
         # Try removing each allocated node (one at a time)
@@ -755,7 +755,7 @@ class GreedyTreeOptimizer:
 
                     if self._validate_candidate(modified_xml, candidate_name):
                         candidates[candidate_name] = modified_xml
-                except Exception as e:
+                except (ValueError, RuntimeError) as e:
                     logger.debug(f"Failed to remove node {node_id}: {e}")
 
         # Try adding nodes (if enabled and tree graph loaded)
@@ -802,7 +802,7 @@ class GreedyTreeOptimizer:
 
                     if self._validate_candidate(modified_xml, candidate_name):
                         candidates[candidate_name] = modified_xml
-                except Exception as e:
+                except (ValueError, RuntimeError) as e:
                     logger.debug(f"Failed to add node {node_id}: {e}")
 
         return candidates
@@ -946,7 +946,7 @@ class GreedyTreeOptimizer:
                         candidates[candidate_name] = modified_xml
                         candidate_count += 1
 
-                    except Exception as e:
+                    except (ValueError, RuntimeError) as e:
                         logger.debug(f"Failed to apply jewel move: {e}")
                         continue
 
@@ -1008,11 +1008,11 @@ class GreedyTreeOptimizer:
                             candidates[candidate_name] = modified_xml
                             candidate_count += 1
 
-                        except Exception as e:
+                        except (ValueError, RuntimeError, ET.ParseError) as e:
                             logger.debug(f"Failed to apply jewel swap: {e}")
                             continue
 
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             logger.debug(f"Error loading jewel registry for swaps: {e}")
 
         return candidates
@@ -1102,10 +1102,10 @@ class GreedyTreeOptimizer:
                             )
                             candidates[candidate_name] = modified_xml
 
-                        except Exception as e:
+                        except (ValueError, RuntimeError) as e:
                             logger.debug(f"Failed to create ToH candidate: {e}")
 
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             logger.debug(f"Error generating Thread of Hope candidates: {e}")
 
         return candidates
@@ -1163,10 +1163,10 @@ class GreedyTreeOptimizer:
                             )
                         candidates[name] = modified_xml
 
-                except Exception as e:
+                except (ValueError, RuntimeError) as e:
                     logger.debug(f"Failed to generate candidates for cluster: {e}")
 
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             logger.debug(f"Error generating cluster candidates: {e}")
 
         return candidates

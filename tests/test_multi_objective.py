@@ -6,12 +6,16 @@ Test multi-objective optimization components (no calculator needed).
 import logging
 from src.optimizer.multi_objective_optimizer import (
     MultiObjectiveScore,
+    MultiObjectiveResult,
     ParetoIndividual,
     ParetoFrontier,
     calculate_pareto_ranks,
     calculate_crowding_distances,
     get_pareto_frontier,
     format_pareto_frontier,
+    _individual_to_pareto,
+    _pareto_to_individual,
+    MultiObjectiveTreeOptimizer,
 )
 
 # Setup logging
@@ -246,6 +250,108 @@ def test_formatting():
     assert "Balanced" in formatted
 
     print(f"✅ Formatting working correctly!")
+
+
+def test_individual_to_pareto_roundtrip():
+    """Test conversion between Individual and ParetoIndividual."""
+    from src.pob.relative_calculator import RelativeEvaluation
+    from src.optimizer.genetic_optimizer import Individual
+
+    eval_result = RelativeEvaluation(
+        baseline_dps=1000, baseline_life=5000, baseline_ehp=20000,
+        estimated_dps=1050, estimated_life=5150, estimated_ehp=20400,
+        dps_ratio=1.05, life_ratio=1.03, ehp_ratio=1.02,
+        dps_change_percent=5.0, life_change_percent=3.0, ehp_change_percent=2.0,
+        baseline_lua_dps=100, modified_lua_dps=105,
+    )
+
+    ind = Individual(
+        xml="<test/>",
+        fitness=0.75,
+        fitness_details=eval_result,
+        generation=3,
+        individual_id=42,
+    )
+
+    # Individual -> ParetoIndividual
+    pareto = _individual_to_pareto(ind)
+    assert pareto.xml == "<test/>"
+    assert pareto.score.dps_percent == 5.0
+    assert pareto.score.life_percent == 3.0
+    assert pareto.score.ehp_percent == 2.0
+    assert pareto.individual_id == 42
+
+    # ParetoIndividual -> Individual
+    back = _pareto_to_individual(pareto, generation=5)
+    assert back.xml == "<test/>"
+    assert back.generation == 5
+    assert back.fitness_details is eval_result
+
+
+def test_individual_to_pareto_no_details():
+    """Test conversion when fitness_details is None."""
+    from src.optimizer.genetic_optimizer import Individual
+
+    ind = Individual(xml="<empty/>", fitness=0.0, fitness_details=None)
+    pareto = _individual_to_pareto(ind)
+    assert pareto.score.dps_percent == 0.0
+    assert pareto.score.life_percent == 0.0
+    assert pareto.score.ehp_percent == 0.0
+
+
+def test_nsga_ii_selection_ordering():
+    """Test that NSGA-II selection prefers lower rank, then higher crowding."""
+    # Rank 0 should beat rank 1
+    a = ParetoIndividual(
+        xml="<a/>", score=MultiObjectiveScore(5.0, 5.0, 5.0, None),
+        rank=0, crowding_distance=1.0,
+    )
+    b = ParetoIndividual(
+        xml="<b/>", score=MultiObjectiveScore(6.0, 6.0, 6.0, None),
+        rank=1, crowding_distance=10.0,
+    )
+    assert a < b, "Lower rank should win regardless of crowding distance"
+
+    # Same rank: higher crowding should win
+    c = ParetoIndividual(
+        xml="<c/>", score=MultiObjectiveScore(3.0, 3.0, 3.0, None),
+        rank=0, crowding_distance=5.0,
+    )
+    d = ParetoIndividual(
+        xml="<d/>", score=MultiObjectiveScore(4.0, 4.0, 4.0, None),
+        rank=0, crowding_distance=2.0,
+    )
+    assert c < d, "Higher crowding distance should win at same rank"
+
+
+def test_multi_objective_result_dataclass():
+    """Test MultiObjectiveResult construction."""
+    frontier = ParetoFrontier([
+        ParetoIndividual(
+            xml="<balanced/>",
+            score=MultiObjectiveScore(5.0, 5.0, 5.0, None),
+        ),
+    ])
+    result = MultiObjectiveResult(
+        pareto_frontier=frontier,
+        generations=10,
+        original_xml="<orig/>",
+        balanced_solution_xml="<balanced/>",
+    )
+    assert result.generations == 10
+    assert result.pareto_frontier.size() == 1
+    assert result.balanced_solution_xml == "<balanced/>"
+
+
+def test_multi_objective_optimizer_instantiation():
+    """Test that MultiObjectiveTreeOptimizer can be created."""
+    optimizer = MultiObjectiveTreeOptimizer(
+        population_size=10,
+        generations=3,
+    )
+    assert optimizer.population_size == 10
+    assert optimizer.generations == 3
+    assert optimizer._genetic is not None
 
 
 def main():

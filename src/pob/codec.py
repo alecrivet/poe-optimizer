@@ -72,7 +72,7 @@ def decode_pob_code(code: str) -> str:
         # Step 2: Base64 decode
         try:
             compressed = base64.b64decode(code, validate=True)
-        except Exception as e:
+        except (ValueError, base64.binascii.Error) as e:
             raise DecodeError(f"Invalid base64 encoding: {e}")
 
         # Step 3: Zlib decompress
@@ -95,7 +95,7 @@ def decode_pob_code(code: str) -> str:
 
     except DecodeError:
         raise
-    except Exception as e:
+    except (ValueError, zlib.error, base64.binascii.Error) as e:
         raise DecodeError(f"Unexpected error decoding PoB code: {e}")
 
 
@@ -132,7 +132,7 @@ def encode_pob_code(xml: str, url_encode: bool = False) -> str:
         # Step 2: Zlib compress
         try:
             compressed = zlib.compress(xml_bytes)
-        except Exception as e:
+        except zlib.error as e:
             raise EncodeError(f"Compression failed: {e}")
 
         # Step 3: Base64 encode (using URL-safe base64 to match PoB format)
@@ -140,7 +140,7 @@ def encode_pob_code(xml: str, url_encode: bool = False) -> str:
             code = base64.b64encode(compressed).decode('ascii')
             # Convert to URL-safe base64 (- and _ instead of + and /)
             code = code.replace('+', '-').replace('/', '_')
-        except Exception as e:
+        except (ValueError, base64.binascii.Error) as e:
             raise EncodeError(f"Base64 encoding failed: {e}")
 
         # Step 4: Optional URL encoding (for embedding in URLs)
@@ -151,7 +151,7 @@ def encode_pob_code(xml: str, url_encode: bool = False) -> str:
 
     except EncodeError:
         raise
-    except Exception as e:
+    except (ValueError, zlib.error, base64.binascii.Error) as e:
         raise EncodeError(f"Unexpected error encoding XML: {e}")
 
 

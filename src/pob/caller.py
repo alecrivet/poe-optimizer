@@ -263,9 +263,7 @@ class PoBCalculator:
                 "The build may be too complex or PoB may be stuck."
             )
 
-        except Exception as e:
-            if isinstance(e, PoBCalculatorError):
-                raise
+        except (OSError, RuntimeError, subprocess.SubprocessError) as e:
             raise PoBCalculatorError(f"Unexpected error during evaluation: {e}")
 
         finally:

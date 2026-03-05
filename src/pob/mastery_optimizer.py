@@ -213,7 +213,7 @@ class MasteryOptimizer:
                 if score > best_score:
                     best_score = score
                     best_effect = effect
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"Failed to evaluate effect {effect.effect_id}: {e}")
 
         return best_effect if best_effect else self._select_effect_by_heuristic(effects, objective, None)
@@ -376,7 +376,7 @@ class MasteryOptimizer:
 
         try:
             result = calculator.evaluate_modification(base_xml, modified_xml)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.warning(f"Failed to evaluate mastery effect {effect_id}: {e}")
             return 0.0
 
@@ -436,7 +436,7 @@ class MasteryOptimizer:
                     life_change=eval_result.life_change_percent,
                     ehp_change=eval_result.ehp_change_percent
                 ))
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"Failed to evaluate effect {effect.effect_id}: {e}")
 
         results.sort(key=lambda x: x.score, reverse=True)
@@ -516,7 +516,7 @@ class MasteryOptimizer:
         # Batch evaluate all modifications
         try:
             results = batch_calculator.evaluate_batch(base_xml, modifications)
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             logger.error(f"Batch evaluation failed: {e}")
             # Fallback to heuristic selection
             return self.select_best_mastery_effects(

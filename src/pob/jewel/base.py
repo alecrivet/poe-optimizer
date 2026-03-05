@@ -4,6 +4,7 @@ Base Classes for Jewel Support
 Provides common data structures and interfaces for all jewel types.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -11,6 +12,8 @@ from typing import List, Optional, Set, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..tree_parser import PassiveTreeGraph
+
+logger = logging.getLogger(__name__)
 
 
 class JewelCategory(Enum):
@@ -134,6 +137,31 @@ OUTER_JEWEL_SOCKETS = {
     33989, 36634, 41263, 46519, 54127,
     60735, 61419, 61834,
 }
+
+def get_outer_jewel_sockets(tree_graph: Optional["PassiveTreeGraph"] = None) -> Set[int]:
+    """
+    Get the set of outer jewel socket node IDs.
+
+    Dynamically classifies sockets from tree data when a tree_graph is provided.
+    Falls back to the hardcoded OUTER_JEWEL_SOCKETS constant with a warning.
+
+    Args:
+        tree_graph: PassiveTreeGraph instance (optional)
+
+    Returns:
+        Set of outer jewel socket node IDs
+    """
+    if (tree_graph is not None
+            and hasattr(tree_graph, 'get_outer_jewel_sockets')
+            and hasattr(tree_graph, 'expansion_jewel_data')
+            and tree_graph.nodes):
+        dynamic_sockets = tree_graph.get_outer_jewel_sockets()
+        if dynamic_sockets:
+            return dynamic_sockets
+        logger.warning("Dynamic outer socket classification returned empty, falling back to hardcoded")
+
+    return set(OUTER_JEWEL_SOCKETS)
+
 
 def get_jewel_base_type(item_text: str) -> Optional[str]:
     """

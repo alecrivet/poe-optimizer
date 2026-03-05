@@ -2,9 +2,14 @@
 Codec commands - Encode/decode PoB codes.
 """
 
+import logging
+import xml.parsers.expat
+
 import click
 from typing import Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from ..utils import InputHandler, get_output_handler
 
@@ -131,8 +136,8 @@ def decode(ctx, input_source: str, output: Optional[str], pretty: bool):
             # Remove extra blank lines
             lines = [line for line in xml_content.split("\n") if line.strip()]
             xml_content = "\n".join(lines)
-        except Exception:
-            pass  # Fall back to unformatted
+        except (xml.parsers.expat.ExpatError, ValueError):
+            logger.debug("Pretty-print failed, falling back to unformatted XML")
 
     # Output
     if output:

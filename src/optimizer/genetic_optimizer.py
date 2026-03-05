@@ -33,7 +33,7 @@ Advantages over Greedy:
 import logging
 import os
 import random
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, BrokenExecutor, as_completed
 from typing import Dict, List, Optional, Tuple, Set, Callable
 from dataclasses import dataclass, field
 from copy import deepcopy
@@ -95,7 +95,7 @@ def _evaluate_individual(args: Tuple[int, str, str, str]) -> Tuple[int, Optional
         calculator = RelativeCalculator()
         eval_result = calculator.evaluate_modification(baseline_xml, individual_xml)
         return (individual_id, eval_result)
-    except Exception as e:
+    except (RuntimeError, OSError, ValueError) as e:
         logger.debug(f"Failed to evaluate individual {individual_id}: {e}")
         return (individual_id, None)
 
@@ -320,7 +320,7 @@ class Population:
                     else:
                         # Failed evaluation - assign very low fitness
                         self.individuals[idx].fitness = -1000
-                except Exception as e:
+                except (RuntimeError, OSError, ValueError) as e:
                     logger.debug(f"Exception evaluating individual {idx}: {e}")
                     self.individuals[idx].fitness = -1000
 
@@ -354,7 +354,7 @@ class Population:
                 if pbar:
                     pbar.update(1)
 
-        except Exception as e:
+        except (RuntimeError, OSError, BrokenExecutor) as e:
             logger.error(f"Batch evaluation failed: {e}, falling back to sequential")
             self._evaluate_sequential(objective, pbar)
 
@@ -494,7 +494,7 @@ class GeneticTreeOptimizer:
                     self.radius_calculator, self.tree_graph
                 )
                 logger.info(f"Thread of Hope optimizer ready ({len(positions)} node positions)")
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"Failed to initialize Thread of Hope optimizer: {e}")
                 self.radius_calculator = None
                 self.thread_of_hope_optimizer = None
@@ -589,7 +589,7 @@ class GeneticTreeOptimizer:
                     f"{self.build_context.attack_or_spell}, "
                     f"defense: {self.build_context.defense_style}"
                 )
-            except Exception as e:
+            except (ValueError, KeyError, AttributeError) as e:
                 logger.warning(f"Failed to extract build context: {e}")
                 self.build_context = None
 
@@ -905,7 +905,7 @@ class GeneticTreeOptimizer:
                                 nodes_to_add=[node_to_add]
                             )
                             current_nodes.add(node_to_add)
-                        except Exception as e:
+                        except (ValueError, RuntimeError) as e:
                             logger.debug(f"Failed to add node {node_to_add}: {e}")
 
             elif action == 'remove':
@@ -919,7 +919,7 @@ class GeneticTreeOptimizer:
                             nodes_to_remove=[node_to_remove]
                         )
                         current_nodes.discard(node_to_remove)
-                    except Exception as e:
+                    except (ValueError, RuntimeError) as e:
                         logger.debug(f"Failed to remove node {node_to_remove}: {e}")
 
             elif action == 'mastery' and self.optimize_masteries:
@@ -966,7 +966,7 @@ class GeneticTreeOptimizer:
                     batch_calculator=self.batch_calculator
                 )
                 logger.debug("Used batch calculator for mastery evaluation")
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError) as e:
                 logger.warning(f"Batch mastery evaluation failed, using heuristics: {e}")
                 optimal_masteries = self.mastery_optimizer.select_best_mastery_effects(
                     allocated_nodes=allocated_nodes,
@@ -1133,7 +1133,7 @@ class GeneticTreeOptimizer:
                     nodes_to_remove=[],
                     mastery_effects_to_add=offspring_masteries
                 )
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             logger.debug(f"Crossover failed, using parent1: {e}")
             offspring_xml = parent1.xml
 
@@ -1227,7 +1227,7 @@ class GeneticTreeOptimizer:
 
                 return ET.tostring(root, encoding='unicode')
 
-        except Exception as e:
+        except (ValueError, RuntimeError, ET.ParseError) as e:
             logger.debug(f"Jewel swap mutation failed: {e}")
 
         return xml  # Return original if swap failed
@@ -1310,7 +1310,7 @@ class GeneticTreeOptimizer:
             )
             return ET.tostring(root, encoding='unicode')
 
-        except Exception as e:
+        except (ValueError, RuntimeError, ET.ParseError) as e:
             logger.debug(f"Jewel move mutation failed: {e}")
 
         return xml
@@ -1368,7 +1368,7 @@ class GeneticTreeOptimizer:
             logger.debug(f"Jewel removal mutation: removed jewel {jewel.item_id}")
             return ET.tostring(root, encoding='unicode')
 
-        except Exception as e:
+        except (ValueError, RuntimeError, ET.ParseError) as e:
             logger.debug(f"Jewel removal mutation failed: {e}")
 
         return xml
@@ -1430,7 +1430,7 @@ class GeneticTreeOptimizer:
                             nodes_to_add=[notable_id]
                         )
 
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             logger.debug(f"Thread of Hope mutation failed: {e}")
 
         return xml
@@ -1486,7 +1486,7 @@ class GeneticTreeOptimizer:
                     nodes_to_add=nodes_to_add
                 )
 
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             logger.debug(f"Cluster notable mutation failed: {e}")
 
         return xml
@@ -1551,7 +1551,7 @@ class GeneticTreeOptimizer:
                         logger.debug(
                             f"Mutation: Added node {node_to_add} ({node.name})"
                         )
-                    except Exception as e:
+                    except (ValueError, RuntimeError) as e:
                         logger.debug(f"Mutation add failed: {e}")
 
         elif mutation_type == 'remove':
@@ -1565,7 +1565,7 @@ class GeneticTreeOptimizer:
                         nodes_to_remove=[node_to_remove]
                     )
                     logger.debug(f"Mutation: Removed node {node_to_remove}")
-                except Exception as e:
+                except (ValueError, RuntimeError) as e:
                     logger.debug(f"Mutation remove failed: {e}")
 
         elif mutation_type == 'mastery' and self.optimize_masteries:

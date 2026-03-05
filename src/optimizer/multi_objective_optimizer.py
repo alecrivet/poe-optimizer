@@ -53,12 +53,15 @@ Benefits:
 """
 
 import logging
-from typing import List, Set, Tuple, Dict, Optional
-from dataclasses import dataclass
+from typing import List, Set, Tuple, Dict, Optional, TYPE_CHECKING
+from dataclasses import dataclass, field
 from copy import deepcopy
 import random
 
 from ..pob.relative_calculator import RelativeEvaluation
+
+if TYPE_CHECKING:
+    from .genetic_optimizer import Individual
 
 logger = logging.getLogger(__name__)
 
@@ -446,3 +449,290 @@ def format_pareto_frontier(frontier: ParetoFrontier) -> str:
     lines.append(f"{'='*80}\n")
 
     return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Integration with GeneticTreeOptimizer
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MultiObjectiveResult:
+    """Result from multi-objective optimization."""
+
+    pareto_frontier: ParetoFrontier
+    generations: int
+    original_xml: str = ""
+    balanced_solution_xml: Optional[str] = None
+
+
+def _individual_to_pareto(ind: "Individual") -> ParetoIndividual:
+    """Convert a genetic Individual to a ParetoIndividual."""
+    if ind.fitness_details is None:
+        score = MultiObjectiveScore(0.0, 0.0, 0.0, None)
+    else:
+        score = MultiObjectiveScore(
+            dps_percent=ind.fitness_details.dps_change_percent,
+            life_percent=ind.fitness_details.life_change_percent,
+            ehp_percent=ind.fitness_details.ehp_change_percent,
+            evaluation=ind.fitness_details,
+        )
+    return ParetoIndividual(
+        xml=ind.xml,
+        score=score,
+        individual_id=ind.individual_id,
+    )
+
+
+def _pareto_to_individual(pareto_ind: ParetoIndividual, generation: int = 0) -> "Individual":
+    """Convert a ParetoIndividual back to a genetic Individual."""
+    from .genetic_optimizer import Individual
+
+    return Individual(
+        xml=pareto_ind.xml,
+        fitness=0.0,
+        fitness_details=pareto_ind.score.evaluation,
+        generation=generation,
+        individual_id=pareto_ind.individual_id,
+    )
+
+
+class MultiObjectiveTreeOptimizer:
+    """
+    Multi-objective passive tree optimizer using NSGA-II.
+
+    Delegates to GeneticTreeOptimizer for mutation, crossover, and evaluation
+    infrastructure. Replaces scalar fitness selection with Pareto rank +
+    crowding distance selection.
+    """
+
+    def __init__(
+        self,
+        population_size: int = 30,
+        generations: int = 50,
+        mutation_rate: float = 0.2,
+        crossover_rate: float = 0.8,
+        optimize_masteries: bool = True,
+        optimize_jewel_sockets: bool = False,
+        allow_cluster_optimization: bool = False,
+        max_workers: Optional[int] = None,
+        use_batch_evaluation: bool = False,
+        show_progress: bool = True,
+        tree_version: Optional[str] = None,
+    ):
+        self.population_size = population_size
+        self.generations = generations
+        self.mutation_rate = mutation_rate
+        self.crossover_rate = crossover_rate
+        self.show_progress = show_progress
+
+        # Lazy-import to avoid circular dependency at module load time
+        from .genetic_optimizer import GeneticTreeOptimizer
+
+        self._genetic = GeneticTreeOptimizer(
+            population_size=population_size,
+            generations=generations,
+            mutation_rate=mutation_rate,
+            crossover_rate=crossover_rate,
+            elitism_count=0,  # NSGA-II handles selection itself
+            optimize_masteries=optimize_masteries,
+            optimize_jewel_sockets=optimize_jewel_sockets,
+            allow_cluster_optimization=allow_cluster_optimization,
+            max_workers=max_workers,
+            use_batch_evaluation=use_batch_evaluation,
+            show_progress=show_progress,
+            tree_version=tree_version,
+        )
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def optimize(self, build_xml: str) -> MultiObjectiveResult:
+        """
+        Run NSGA-II multi-objective optimization.
+
+        Args:
+            build_xml: Original build XML
+
+        Returns:
+            MultiObjectiveResult with Pareto frontier
+        """
+        from .genetic_optimizer import Individual, Population
+        from ..pob.modifier import get_passive_tree_summary
+        from ..pob.jewel.registry import JewelRegistry
+        from ..pob.tree_version import get_tree_version_from_xml
+        from .constraints import auto_constraints_from_xml
+
+        logger.info("Starting multi-objective optimization (NSGA-II)")
+        logger.info(
+            f"Population: {self.population_size}, "
+            f"Generations: {self.generations}"
+        )
+
+        g = self._genetic  # shorthand
+
+        # --- bootstrap the genetic optimizer's state (mirrors optimize()) ---
+        if g.tree_version is None:
+            g.tree_version = get_tree_version_from_xml(build_xml)
+        if g.constraints is None:
+            g.constraints = auto_constraints_from_xml(build_xml)
+
+        g._baseline_xml = build_xml
+
+        if g.optimize_masteries:
+            try:
+                from ..pob.build_context import BuildContext
+                g.build_context = BuildContext.from_build_xml(build_xml)
+            except (ValueError, KeyError, AttributeError) as e:
+                logger.warning(f"Failed to extract build context: {e}")
+                g.build_context = None
+
+        if g.use_batch_evaluation and g.batch_calculator:
+            num_workers = g.batch_calculator.start()
+            logger.info(f"Worker pool ready ({num_workers} workers)")
+
+        original_summary = get_passive_tree_summary(build_xml)
+        original_nodes = set(original_summary['allocated_nodes'])
+
+        jewel_registry = JewelRegistry.from_build_xml(build_xml)
+        g.protected_nodes = jewel_registry.get_protected_nodes(
+            original_nodes, protect_empty_sockets=False
+        )
+
+        # --- initial population ---
+        individuals = [Individual(xml=build_xml, generation=0)]
+        for _ in range(1, self.population_size):
+            varied_xml = g._create_random_variation(
+                build_xml, original_nodes, 'balanced'
+            )
+            individuals.append(Individual(xml=varied_xml, generation=0))
+
+        pop = Population(
+            individuals,
+            build_xml,
+            g.calculator,
+            batch_calculator=g.batch_calculator,
+            max_workers=g.max_workers,
+            use_batch_evaluation=g.use_batch_evaluation,
+            show_progress=g.show_progress,
+            constraints=g.constraints,
+        )
+        for ind in individuals:
+            pop.assign_id(ind)
+        pop.evaluate_fitness('balanced')
+
+        # Convert to Pareto individuals
+        pareto_pop = [_individual_to_pareto(ind) for ind in individuals]
+
+        # --- NSGA-II generational loop ---
+        for gen in range(self.generations):
+            logger.info(f"Generation {gen + 1}/{self.generations}")
+
+            # Rank + crowding on current population
+            fronts = calculate_pareto_ranks(pareto_pop)
+            for front in fronts:
+                calculate_crowding_distances(front)
+
+            # Create offspring
+            offspring_pareto: List[ParetoIndividual] = []
+            while len(offspring_pareto) < self.population_size:
+                # Binary tournament selection (twice)
+                parent1 = self._tournament_select(pareto_pop)
+                parent2 = self._tournament_select(pareto_pop)
+
+                p1_ind = _pareto_to_individual(parent1, gen + 1)
+                p2_ind = _pareto_to_individual(parent2, gen + 1)
+
+                # Crossover
+                if random.random() < self.crossover_rate:
+                    child_ind = g._crossover(p1_ind, p2_ind, gen + 1)
+                else:
+                    child_ind = deepcopy(p1_ind)
+                    child_ind.generation = gen + 1
+
+                # Mutation
+                if random.random() < self.mutation_rate:
+                    child_ind = g._mutate(child_ind, 'balanced')
+
+                offspring_pareto.append(ParetoIndividual(
+                    xml=child_ind.xml,
+                    score=MultiObjectiveScore(0.0, 0.0, 0.0, None),
+                ))
+
+            # Evaluate offspring
+            offspring_individuals = [
+                Individual(xml=p.xml, generation=gen + 1)
+                for p in offspring_pareto
+            ]
+            offspring_pop = Population(
+                offspring_individuals,
+                build_xml,
+                g.calculator,
+                batch_calculator=g.batch_calculator,
+                max_workers=g.max_workers,
+                use_batch_evaluation=g.use_batch_evaluation,
+                show_progress=g.show_progress,
+                constraints=g.constraints,
+            )
+            for ind in offspring_individuals:
+                offspring_pop.assign_id(ind)
+            offspring_pop.evaluate_fitness('balanced')
+
+            offspring_pareto = [
+                _individual_to_pareto(ind) for ind in offspring_individuals
+            ]
+
+            # Combine parent + offspring (2N)
+            combined = pareto_pop + offspring_pareto
+
+            # Non-dominated sort on combined population
+            fronts = calculate_pareto_ranks(combined)
+
+            # Select next generation (N individuals) by rank then crowding
+            next_pop: List[ParetoIndividual] = []
+            for front in fronts:
+                calculate_crowding_distances(front)
+                if len(next_pop) + len(front) <= self.population_size:
+                    next_pop.extend(front)
+                else:
+                    # Partial front: sort by crowding distance descending
+                    front.sort(key=lambda x: x.crowding_distance, reverse=True)
+                    remaining = self.population_size - len(next_pop)
+                    next_pop.extend(front[:remaining])
+                    break
+
+            pareto_pop = next_pop
+
+            # Log frontier size
+            frontier_size = sum(1 for p in pareto_pop if p.rank == 0)
+            logger.info(
+                f"  Generation {gen + 1}: "
+                f"frontier={frontier_size}, pop={len(pareto_pop)}"
+            )
+
+        # --- extract final Pareto frontier ---
+        frontier = get_pareto_frontier(pareto_pop)
+        balanced = frontier.get_balanced_solution()
+
+        logger.info(format_pareto_frontier(frontier))
+
+        return MultiObjectiveResult(
+            pareto_frontier=frontier,
+            generations=self.generations,
+            original_xml=build_xml,
+            balanced_solution_xml=balanced.xml if balanced else None,
+        )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _tournament_select(
+        population: List[ParetoIndividual],
+    ) -> ParetoIndividual:
+        """Binary tournament: pick 2 random, return the one with better rank/crowding."""
+        i, j = random.sample(range(len(population)), 2)
+        a, b = population[i], population[j]
+        return a if a < b else b

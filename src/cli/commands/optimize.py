@@ -265,30 +265,47 @@ def optimize(
             }
 
         elif algorithm == "multi":
-            from src.optimizer.multi_objective_optimizer import MultiObjectiveOptimizer
+            from src.optimizer.multi_objective_optimizer import (
+                MultiObjectiveTreeOptimizer,
+                format_pareto_frontier,
+            )
 
-            optimizer = MultiObjectiveOptimizer(
+            if objective != "balanced":
+                logger.info(
+                    f"Multi-objective mode ignores --objective '{objective}'; "
+                    "optimising DPS, Life, and EHP simultaneously"
+                )
+
+            multi_optimizer = MultiObjectiveTreeOptimizer(
                 population_size=population_size,
                 generations=generations,
+                optimize_masteries=optimize_masteries,
+                max_workers=max_workers,
+                use_batch_evaluation=use_batch,
+                show_progress=True,
             )
-            result = optimizer.optimize(build_xml)
+            result = multi_optimizer.optimize(build_xml)
 
-            # Use first Pareto-optimal solution
-            if result.pareto_front:
-                best = result.pareto_front[0]
-                optimized_xml = best.xml
+            frontier = result.pareto_frontier
+            balanced = frontier.get_balanced_solution()
+
+            if balanced:
+                optimized_xml = balanced.xml
                 improvements = {
-                    "dps_change": best.objectives.get("dps", 0),
-                    "life_change": best.objectives.get("life", 0),
-                    "ehp_change": best.objectives.get("ehp", 0),
+                    "dps_change": balanced.score.dps_percent,
+                    "life_change": balanced.score.life_percent,
+                    "ehp_change": balanced.score.ehp_percent,
                 }
             else:
                 optimized_xml = build_xml
                 improvements = {}
+
             details = {
                 "generations": result.generations,
-                "pareto_solutions": len(result.pareto_front),
+                "pareto_solutions": frontier.size(),
             }
+
+            output.info(format_pareto_frontier(frontier))
 
     except Exception as e:
         logger.debug("Optimization failed", exc_info=True)

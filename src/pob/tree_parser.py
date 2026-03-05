@@ -17,6 +17,7 @@ Each node has:
 - Position (x, y coordinates)
 """
 
+import math
 import re
 from collections import deque
 import logging
@@ -59,6 +60,8 @@ class PassiveTreeGraph:
         self.nodes: Dict[int, PassiveNode] = {}
         self.tree_version: Optional[str] = None
         self.class_start_nodes: Dict[str, int] = {}
+        # Maps jewel socket node_id -> {size: int, parent: str?, proxy: str?}
+        self.expansion_jewel_data: Dict[int, Dict] = {}
 
     def add_node(self, node: PassiveNode):
         """Add a node to the graph."""
@@ -242,6 +245,54 @@ class PassiveTreeGraph:
         """Get all jewel socket nodes."""
         return [node for node in self.nodes.values() if node.node_type == 'jewel']
 
+    def get_outer_jewel_sockets(self) -> Set[int]:
+        """
+        Get the set of jewel sockets that are root-level (not children of other expansion sockets).
+
+        These are the sockets on the main passive tree that aren't dynamically generated
+        by cluster jewels. Uses the `expansionJewel` metadata parsed from tree data:
+        sockets WITHOUT an `expansionJewel.parent` field are root-level.
+
+        Cluster jewel sockets (ID >= 65536) are excluded since they are dynamically generated.
+
+        Returns:
+            Set of node IDs for outer/root-level jewel sockets
+        """
+        CLUSTER_NODE_MIN_ID = 65536
+        sockets = self.get_jewel_sockets()
+
+        # Filter out cluster-generated sockets and ascendancy sockets
+        root_sockets = set()
+        for s in sockets:
+            if s.node_id >= CLUSTER_NODE_MIN_ID:
+                continue
+            if s.is_ascendancy:
+                continue
+            # Check if this socket has a parent expansion socket
+            exp_data = self.expansion_jewel_data.get(s.node_id)
+            if exp_data is None or 'parent' not in exp_data:
+                root_sockets.add(s.node_id)
+
+        if root_sockets:
+            logger.debug(f"Found {len(root_sockets)} root-level jewel sockets")
+        else:
+            logger.warning("No root-level jewel sockets found in tree data")
+
+        return root_sockets
+
+    def get_expansion_jewel_size(self, node_id: int) -> Optional[int]:
+        """
+        Get the expansion jewel size for a socket node.
+
+        Returns:
+            0 = small, 1 = medium, 2 = large cluster socket.
+            None if no expansion data.
+        """
+        exp_data = self.expansion_jewel_data.get(node_id)
+        if exp_data is not None:
+            return exp_data.get('size')
+        return None
+
 
 class TreeParser:
     """
@@ -341,6 +392,12 @@ class TreeParser:
                     graph.add_node(node_data)
                     nodes_parsed += 1
 
+                    # Parse expansionJewel data for jewel socket nodes
+                    if node_data.node_type == 'jewel':
+                        exp_data = self._parse_expansion_jewel(node_content)
+                        if exp_data is not None:
+                            graph.expansion_jewel_data[node_id] = exp_data
+
                     if nodes_parsed % 100 == 0:
                         logger.debug(f"Parsed {nodes_parsed} nodes...")
 
@@ -351,6 +408,45 @@ class TreeParser:
         logger.info(f"Successfully parsed {nodes_parsed} nodes")
 
         return graph
+
+    def _parse_expansion_jewel(self, node_content: str) -> Optional[Dict]:
+        """
+        Parse expansionJewel data from a node's content.
+
+        Returns:
+            Dict with keys: size (int), proxy (str), parent (str, optional).
+            None if no expansionJewel field found.
+        """
+        if '"expansionJewel"' not in node_content:
+            return None
+
+        exp_match = re.search(
+            r'\["expansionJewel"\]\s*=\s*\{([^}]+)\}',
+            node_content
+        )
+        if not exp_match:
+            return None
+
+        exp_block = exp_match.group(1)
+        result = {}
+
+        size_match = re.search(r'\["size"\]\s*=\s*(\d+)', exp_block)
+        if size_match:
+            result['size'] = int(size_match.group(1))
+
+        proxy_match = re.search(r'\["proxy"\]\s*=\s*"(\d+)"', exp_block)
+        if proxy_match:
+            result['proxy'] = proxy_match.group(1)
+
+        parent_match = re.search(r'\["parent"\]\s*=\s*"(\d+)"', exp_block)
+        if parent_match:
+            result['parent'] = parent_match.group(1)
+
+        index_match = re.search(r'\["index"\]\s*=\s*(\d+)', exp_block)
+        if index_match:
+            result['index'] = int(index_match.group(1))
+
+        return result if result else None
 
     def _parse_node_data(self, node_id: int, node_content: str) -> Optional[PassiveNode]:
         """
