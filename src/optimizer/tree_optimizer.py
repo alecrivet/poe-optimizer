@@ -24,8 +24,8 @@ import logging
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor, BrokenExecutor, as_completed
-from typing import Dict, List, Optional, Tuple, Callable
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple, Callable
+from dataclasses import dataclass, field
 
 try:
     from tqdm import tqdm
@@ -97,6 +97,27 @@ def _evaluate_candidate(args: Tuple[str, str, str]) -> Tuple[str, str, Optional[
 
 
 @dataclass
+class IterationEvent:
+    """
+    Progress event emitted once per applied improvement.
+
+    Passed to the ``on_iteration`` callback of :meth:`GreedyTreeOptimizer.optimize`
+    right after the improvement has been committed to the calculator.
+    """
+
+    iteration: int                    # 1-based
+    name: str                         # candidate name, e.g. "Swap: Remove node 4833 (Vigour) / Add node ..."
+    removed: List[Tuple[int, str]]    # (node_id, node name) removed vs the previous tree (incl. PoB-pruned dependents)
+    added: List[Tuple[int, str]]      # (node_id, node name) added vs the previous tree
+    masteries: Dict[int, int]         # mastery effect changes applied this iteration {node_id: effect_id}
+    marginal_pct: float               # improvement of this step vs the previous tree, for the objective
+    cumulative_pct: float             # improvement vs the original build, for the objective
+    points_used: int
+    candidates_evaluated: int         # singles + swaps (+ xml candidates) evaluated this iteration
+    elapsed_s: float                  # seconds since optimize() started
+
+
+@dataclass
 class OptimizationResult:
     """Result from a tree optimization run."""
 
@@ -108,10 +129,17 @@ class OptimizationResult:
     modifications_applied: List[Dict]
     improvement_history: List[float]
     constraint_violations: List[str] = None
+    final_nodes: Set[int] = field(default_factory=set)
+    final_masteries: Dict[int, int] = field(default_factory=dict)
+    cancelled: bool = False
 
     def __post_init__(self):
         if self.constraint_violations is None:
             self.constraint_violations = []
+        if self.final_nodes is None:
+            self.final_nodes = set()
+        if self.final_masteries is None:
+            self.final_masteries = {}
 
     def get_improvement(self, objective: str = 'dps') -> float:
         """Get total improvement percentage for an objective."""
@@ -282,6 +310,8 @@ class GreedyTreeOptimizer:
         build_xml: str,
         objective: str = 'dps',
         allow_point_increase: bool = True,
+        on_iteration: Optional[Callable[[IterationEvent], None]] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> OptimizationResult:
         """
         Optimize a build's passive tree.
@@ -290,11 +320,17 @@ class GreedyTreeOptimizer:
             build_xml: Original build XML
             objective: Optimization objective ('dps', 'life', 'ehp', 'balanced')
             allow_point_increase: If False, can only reallocate existing points
+            on_iteration: Called once per applied improvement with an
+                :class:`IterationEvent` describing the committed change.
+            should_cancel: Polled at the top of every iteration; when it
+                returns True the search stops cleanly and the best-so-far
+                result is returned with ``cancelled=True``.
 
         Returns:
             OptimizationResult with optimization details
         """
         logger.info(f"Starting optimization with objective: {objective}")
+        self._optimize_started_at = time.time()
 
         # Resolve tree version from build XML if not explicitly set
         if self.tree_version is None:
@@ -327,7 +363,10 @@ class GreedyTreeOptimizer:
         # Fast path: incremental evaluation inside persistent PoB workers
         if self.use_incremental:
             try:
-                return self._optimize_incremental(build_xml, objective, allow_point_increase)
+                return self._optimize_incremental(
+                    build_xml, objective, allow_point_increase,
+                    on_iteration=on_iteration, should_cancel=should_cancel,
+                )
             except IncrementalCalculatorError as e:
                 logger.warning(f"Incremental evaluation unavailable ({e}); falling back to XML reload path")
                 if self.incremental_calculator:
@@ -357,6 +396,8 @@ class GreedyTreeOptimizer:
 
         # Track cumulative improvement for progress display
         cumulative_improvement = 0.0
+        cancelled = False
+        current_masteries = dict(tree_summary.get('mastery_effects') or {})
 
         # Create main iteration progress bar
         iteration_pbar = None
@@ -371,6 +412,10 @@ class GreedyTreeOptimizer:
             iteration_pbar.set_postfix_str(f"improvement: +0.00%")
 
         for iteration in range(self.max_iterations):
+            if should_cancel is not None and should_cancel():
+                logger.info("Cancellation requested - stopping")
+                cancelled = True
+                break
             logger.info(f"Iteration {iteration + 1}/{self.max_iterations}")
 
             # Generate candidate modifications
@@ -523,17 +568,40 @@ class GreedyTreeOptimizer:
 
             # Apply the improvement
             current_xml = best_xml
-            allocated_nodes = set(get_passive_tree_summary(current_xml)['allocated_nodes'])
+            prev_nodes, prev_masteries = allocated_nodes, current_masteries
+            new_summary = get_passive_tree_summary(current_xml)
+            allocated_nodes = set(new_summary['allocated_nodes'])
+            current_masteries = dict(new_summary.get('mastery_effects') or {})
             cumulative_improvement += improvement
+            removed, added, mastery_changes = self._describe_change(
+                prev_nodes, allocated_nodes, prev_masteries, current_masteries
+            )
 
             modifications_applied.append({
                 'iteration': iteration + 1,
                 'modification': best_name,
                 'improvement_pct': improvement,
+                'removed': [[nid, name] for nid, name in removed],
+                'added': [[nid, name] for nid, name in added],
+                'masteries': dict(mastery_changes),
             })
             improvement_history.append(improvement)
 
             logger.info(f"Applied: {best_name} (+{improvement:.2f}% {objective})")
+
+            if on_iteration is not None:
+                on_iteration(IterationEvent(
+                    iteration=iteration + 1,
+                    name=best_name,
+                    removed=removed,
+                    added=added,
+                    masteries=mastery_changes,
+                    marginal_pct=improvement,
+                    cumulative_pct=cumulative_improvement,
+                    points_used=len(allocated_nodes),
+                    candidates_evaluated=len(candidates),
+                    elapsed_s=time.time() - self._optimize_started_at,
+                ))
 
             # Update progress bar
             if iteration_pbar:
@@ -561,6 +629,7 @@ class GreedyTreeOptimizer:
             for v in constraint_violations:
                 logger.warning(f"Constraint violation in final result: {v}")
 
+        final_summary = get_passive_tree_summary(current_xml)
         return OptimizationResult(
             original_xml=build_xml,
             optimized_xml=current_xml,
@@ -570,17 +639,54 @@ class GreedyTreeOptimizer:
             modifications_applied=modifications_applied,
             improvement_history=improvement_history,
             constraint_violations=constraint_violations,
+            final_nodes=set(final_summary['allocated_nodes']),
+            final_masteries=dict(final_summary.get('mastery_effects') or {}),
+            cancelled=cancelled,
         )
 
     # ------------------------------------------------------------------ #
     # Incremental (fast) optimisation path
     # ------------------------------------------------------------------ #
 
+    def _node_name(self, node_id: int) -> str:
+        """Human-readable name for a node, falling back to its id."""
+        node = self.tree_graph.get_node(node_id) if self.tree_graph else None
+        if node is not None and node.name:
+            return node.name
+        return str(node_id)
+
+    def _describe_change(
+        self,
+        before_nodes: Set[int],
+        after_nodes: Set[int],
+        masteries_before: Dict[int, int],
+        masteries_after: Dict[int, int],
+    ) -> Tuple[List[Tuple[int, str]], List[Tuple[int, str]], Dict[int, int]]:
+        """
+        Diff two committed tree states.
+
+        Returns ``(removed, added, masteries)`` where ``removed``/``added`` are
+        sorted ``(node_id, name)`` lists and ``masteries`` holds every mastery
+        node whose effect is new or different after the change.
+        """
+        before_nodes = set(before_nodes)
+        after_nodes = set(after_nodes)
+        removed = [(nid, self._node_name(nid)) for nid in sorted(before_nodes - after_nodes)]
+        added = [(nid, self._node_name(nid)) for nid in sorted(after_nodes - before_nodes)]
+        masteries = {
+            int(nid): int(eff)
+            for nid, eff in sorted(masteries_after.items())
+            if masteries_before.get(nid) != eff
+        }
+        return removed, added, masteries
+
     def _optimize_incremental(
         self,
         build_xml: str,
         objective: str,
         allow_point_increase: bool,
+        on_iteration: Optional[Callable[[IterationEvent], None]] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> OptimizationResult:
         """
         Greedy optimisation using PoB's incremental calculator.
@@ -624,6 +730,8 @@ class GreedyTreeOptimizer:
         modifications_applied = []
         improvement_history = []
         cumulative_improvement = 0.0
+        cancelled = False
+        started_at = getattr(self, "_optimize_started_at", None) or time.time()
 
         iteration_pbar = None
         if self.show_progress:
@@ -637,6 +745,10 @@ class GreedyTreeOptimizer:
             iteration_pbar.set_postfix_str("improvement: +0.00%")
 
         for iteration in range(self.max_iterations):
+            if should_cancel is not None and should_cancel():
+                logger.info("Cancellation requested - stopping")
+                cancelled = True
+                break
             allocated = set(calc.current_nodes)
             masteries = dict(calc.current_masteries)
             current_points = calc.current_points or 0
@@ -677,6 +789,7 @@ class GreedyTreeOptimizer:
                 if xml_candidates:
                     logger.info(f"Evaluating {len(xml_candidates)} jewel/cluster candidates (full reload)")
                     evaluations.update(calc.evaluate_xmls(xml_candidates))
+            candidates_evaluated = len(single_evals) + len(swap_evals) + len(xml_candidates)
 
             if not evaluations:
                 logger.info("No valid candidates - stopping")
@@ -722,11 +835,20 @@ class GreedyTreeOptimizer:
             cumulative_improvement = self._get_improvement_value(
                 calc.evaluate_current_vs_original(), objective
             )
+            # `allocated` / `masteries` are the state before the commit; the
+            # calculator's state now reflects the tree PoB actually produced
+            # (including any dependents it pruned).
+            removed, added, mastery_changes = self._describe_change(
+                allocated, calc.current_nodes, masteries, calc.current_masteries
+            )
             modifications_applied.append({
                 "iteration": iteration + 1,
                 "modification": best_name,
                 "improvement_pct": improvement,
                 "points_used": calc.current_points,
+                "removed": [[nid, name] for nid, name in removed],
+                "added": [[nid, name] for nid, name in added],
+                "masteries": dict(mastery_changes),
             })
             improvement_history.append(improvement)
             logger.info(
@@ -737,6 +859,20 @@ class GreedyTreeOptimizer:
                 iteration_pbar.update(1)
                 iteration_pbar.set_postfix_str(f"improvement: +{cumulative_improvement:.2f}%")
                 iteration_pbar.set_description(f"Iter {iteration+1}: applied {best_name[:30]}")
+
+            if on_iteration is not None:
+                on_iteration(IterationEvent(
+                    iteration=iteration + 1,
+                    name=best_name,
+                    removed=removed,
+                    added=added,
+                    masteries=mastery_changes,
+                    marginal_pct=improvement,
+                    cumulative_pct=cumulative_improvement,
+                    points_used=calc.current_points or 0,
+                    candidates_evaluated=candidates_evaluated,
+                    elapsed_s=time.time() - started_at,
+                ))
 
         if iteration_pbar:
             iteration_pbar.close()
@@ -763,6 +899,9 @@ class GreedyTreeOptimizer:
             modifications_applied=modifications_applied,
             improvement_history=improvement_history,
             constraint_violations=constraint_violations,
+            final_nodes=set(calc.current_nodes),
+            final_masteries=dict(calc.current_masteries),
+            cancelled=cancelled,
         )
 
     def _node_is_removable(self, node_id: int, protected: set, class_starts: set) -> bool:

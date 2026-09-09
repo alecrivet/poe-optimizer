@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Passive Optimizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Alegreya:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<main class="page">
+  <header class="topbar">
+    <h1>Passive Optimizer</h1>
+    <p class="tagline">Uses Path of Building's own calculations. Nothing leaves your machine.</p>
+  </header>
+  <div class="gilt-rule"></div>
+
+  <!-- 1. Your build -->
+  <section class="step" id="step-build">
+    <div class="lbl">Your build</div>
+    <div class="body">
+      <div class="tabs" role="tablist">
+        <button class="tab active" role="tab" data-tab="account">From your account</button>
+        <button class="tab" role="tab" data-tab="paste">Paste a Path of Building code</button>
+      </div>
+
+      <div class="tabpane" id="pane-account">
+        <form id="account-form" class="row">
+          <input id="account-name" type="text" placeholder="Account name" autocomplete="username" required>
+          <button class="btn" type="submit">Find characters</button>
+        </form>
+        <details class="fine">
+          <summary>Private profile? Add your POESESSID</summary>
+          <input id="poesessid" type="password" placeholder="POESESSID cookie value" autocomplete="off">
+          <p class="note">Kept in this page only. In your browser, log in to pathofexile.com, open developer tools, Application/Storage, Cookies, copy the POESESSID value.</p>
+        </details>
+        <div id="characters" class="chars" hidden></div>
+      </div>
+
+      <div class="tabpane" id="pane-paste" hidden>
+        <form id="paste-form">
+          <textarea id="paste-code" rows="4" placeholder="Paste the code from Path of Building's Import/Export tab" spellcheck="false"></textarea>
+          <div class="row" style="margin-top:10px"><button class="btn" type="submit">Read build</button></div>
+        </form>
+      </div>
+
+      <p id="build-error" class="error" hidden></p>
+      <div id="build-card" class="card build-card" hidden></div>
+    </div>
+  </section>
+
+  <!-- 2. Goal -->
+  <section class="step" id="step-goal" hidden>
+    <div class="lbl">What do you want more of</div>
+    <div class="body">
+      <div class="goal" role="radiogroup" aria-label="Goal">
+        <button class="opt sel" role="radio" aria-checked="true" data-objective="dps"><span class="t">Damage</span><span class="s">Most damage for the main skill. May trade some life.</span></button>
+        <button class="opt" role="radio" aria-checked="false" data-objective="life"><span class="t">Survivability</span><span class="s">More life. Damage may drop.</span></button>
+        <button class="opt" role="radio" aria-checked="false" data-objective="balanced"><span class="t">Both</span><span class="s">Balanced. Only takes changes that help overall.</span></button>
+      </div>
+      <div class="guards">
+        <label><input type="checkbox" id="allow-points"> Allow adding passive points</label>
+        <details class="fine inline">
+          <summary>More options</summary>
+          <label>Stop after <input id="iterations" type="number" min="1" max="100" value="15" class="num"> improvements</label>
+          <label>Point count may move by up to <input id="max-point-change" type="number" min="0" max="20" value="5" class="num"> points</label>
+        </details>
+      </div>
+      <div class="cta-row">
+        <button class="btn primary" id="run">Find improvements</button>
+        <span class="note" id="run-note">About a minute on this machine.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Working -->
+  <section class="step" id="step-working" hidden>
+    <div class="lbl">Working</div>
+    <div class="body">
+      <div class="meter"><i id="meter-bar" style="width:0%"></i></div>
+      <div class="row between">
+        <span class="mono small ash" id="working-status">Starting PoB workers…</span>
+        <button class="btn small-btn" id="cancel">Stop here</button>
+      </div>
+      <ol class="ticker" id="ticker"></ol>
+    </div>
+  </section>
+
+  <!-- 4. Result -->
+  <section class="step last" id="step-result" hidden>
+    <div class="lbl">Result</div>
+    <div class="body">
+      <div class="hero" id="hero">
+        <div class="big"><div class="num" id="hero-num">+0.0%</div><div class="hlbl" id="hero-lbl"></div></div>
+        <div id="tree-wrap" class="tree-wrap" aria-label="Passive tree showing the changes"></div>
+        <div class="legend"><span><i class="lg-added"></i>Added</span><span><i class="lg-kept"></i>Kept</span><span><i class="lg-removed"></i>Removed</span><span class="ash hint">drag to pan, wheel to zoom</span></div>
+      </div>
+      <div class="stats4" id="stats"></div>
+      <div class="cta-row">
+        <button class="btn primary" id="copy-code">Copy new build code</button>
+        <a class="btn" id="download-xml" download="optimized.xml">Download XML</a>
+        <span class="note">Paste it into Path of Building with Import/Export, then Import from code.</span>
+      </div>
+      <p class="note" id="result-note" hidden></p>
+      <h2>What changed</h2>
+      <ol class="changes" id="changes"></ol>
+      <div class="cta-row"><button class="btn" id="again">Run again with a different goal</button></div>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js" type="module"></script>
+</body>
+</html>

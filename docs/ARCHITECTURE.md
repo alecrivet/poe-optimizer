@@ -136,6 +136,19 @@ used instead.
 start and ascendancy nodes (`PassiveTreeGraph.count_passive_points`), matching
 PoB's "points used". The incremental path uses PoB's own `pointsUsed`.
 
+## Web UI (`src/web`)
+
+`create_app()` builds a FastAPI app: `POST /api/builds` (code / XML /
+account import -> build card), `GET /api/accounts/{name}/characters`,
+`POST /api/jobs`, `GET /api/jobs/{id}/events` (Server-Sent Events replayed
+from a per-job history so a reconnecting tab misses nothing), `GET
+/api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, `GET /api/tree/{version}`.
+`JobRunner` runs one optimisation at a time on a background thread, adapting
+`optimize(on_iteration=..., should_cancel=...)` to the job model. The page in
+`static/` is plain HTML/CSS/JS; the tree is an SVG built in the browser from
+the tree-data export, clipped to the build's bounding box with pan/zoom.
+Loopback only, no auth, by design.
+
 ## Build representation
 
 - `codec.py`: PoB import code <-> XML (zlib + base64url).

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "poe-optimizer"
-version = "0.10.0"
+version = "0.11.0"
 description = "Path of Exile Build Optimizer - Optimize passive trees using PoB calculations"
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,12 +30,16 @@ dependencies = [
     "click>=8.0",
     "networkx>=3.0",
     "numpy>=1.20",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    "httpx",
     "black",
     "flake8",
     "mypy",

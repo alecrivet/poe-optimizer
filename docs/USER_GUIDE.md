@@ -18,6 +18,21 @@ poe-optimizer setup                 # verifies luajit + PoB submodule
 
 If you cloned without `--recursive`: `git submodule update --init --recursive`.
 
+## The browser UI (easiest)
+
+```bash
+poe-optimizer web
+```
+
+Your browser opens on `http://127.0.0.1:8765`. The page walks you through
+four steps: your build (account import or a pasted PoB code), what you want
+more of, a live view of the changes being applied, and the result with the
+tree drawn, before/after stats, and a "Copy new build code" button. It runs
+entirely on your machine. `--port`, `--workers` and `--no-browser` are the
+only options.
+
+Everything below is the command-line equivalent.
+
 ## Get a build in
 
 Any of these work as the `INPUT` argument:

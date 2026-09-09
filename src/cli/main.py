@@ -25,7 +25,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
     from src import __version__ as VERSION
 
-from .commands import optimize, analyze, diff, jewels, codec, setup, account
+from .commands import optimize, analyze, diff, jewels, codec, setup, account, web
 
 
 class AliasedGroup(click.Group):
@@ -88,6 +88,7 @@ cli.add_command(codec.encode)
 cli.add_command(codec.decode)
 cli.add_command(setup.setup)
 cli.add_command(account.account)
+cli.add_command(web.web)
 
 
 def main():

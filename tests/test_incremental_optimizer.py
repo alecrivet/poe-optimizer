@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.optimizer.constraints import ConstraintSet, PointBudgetConstraint
-from src.optimizer.tree_optimizer import GreedyTreeOptimizer
+from src.optimizer.tree_optimizer import GreedyTreeOptimizer, IterationEvent, OptimizationResult
 from src.pob.incremental_calculator import DeltaEvaluation
 from src.pob.modifier import get_passive_tree_summary, set_passive_tree
 from src.pob.relative_calculator import RelativeEvaluation
@@ -147,6 +147,54 @@ class TestCandidateGeneration:
         assert set(kept) == {"ok", "over_original_no_increase", "unknown_points"}
 
 
+class TestIterationEvents:
+    def test_iteration_event_dataclass(self):
+        ev = IterationEvent(
+            iteration=1, name="Swap: Remove node 2 (A) / Add node 5 (D)",
+            removed=[(2, "A")], added=[(5, "D")], masteries={6: 42},
+            marginal_pct=1.5, cumulative_pct=1.5, points_used=119,
+            candidates_evaluated=10, elapsed_s=0.25,
+        )
+        assert ev.iteration == 1
+        assert ev.removed == [(2, "A")] and ev.added == [(5, "D")]
+        assert ev.masteries == {6: 42}
+        assert ev.points_used == 119 and ev.candidates_evaluated == 10
+
+    def test_result_defaults(self):
+        result = OptimizationResult(
+            original_xml="", optimized_xml="", original_stats=_eval(0), optimized_stats=_eval(0),
+            iterations=0, modifications_applied=[], improvement_history=[],
+        )
+        assert result.final_nodes == set()
+        assert result.final_masteries == {}
+        assert result.cancelled is False
+
+    def test_describe_change_diffs_nodes_and_masteries(self, optimizer):
+        # Remove 3 (PoB would prune its dependent 4 too), add 6 with a mastery effect
+        removed, added, masteries = optimizer._describe_change(
+            before_nodes={1, 2, 3, 4}, after_nodes={1, 2, 6},
+            masteries_before={}, masteries_after={6: 7},
+        )
+        assert removed == [(3, "B"), (4, "C")]
+        assert added == [(6, "Mastery")]
+        assert masteries == {6: 7}
+
+    def test_describe_change_reports_only_changed_masteries(self, optimizer):
+        removed, added, masteries = optimizer._describe_change(
+            before_nodes={1, 2, 6}, after_nodes={1, 2, 6},
+            masteries_before={6: 7}, masteries_after={6: 9},
+        )
+        assert removed == [] and added == []
+        assert masteries == {6: 9}
+        _, _, unchanged = optimizer._describe_change({1, 6}, {1, 6}, {6: 7}, {6: 7})
+        assert unchanged == {}
+
+    def test_describe_change_falls_back_to_id_for_unknown_nodes(self, optimizer):
+        removed, added, _ = optimizer._describe_change({1, 12345}, {1, 99}, {}, {})
+        assert removed == [(12345, "12345")]
+        assert added == [(99, "99")]
+
+
 @needs_pob
 class TestIncrementalCalculator:
     def test_marginal_semantics_and_commit(self):
@@ -201,3 +249,67 @@ class TestGreedyIncrementalEndToEnd:
         # The output XML reflects the committed tree
         assert get_passive_tree_summary(result.optimized_xml)["allocated_nodes"] != \
             get_passive_tree_summary(xml)["allocated_nodes"]
+
+    def test_two_iterations_emit_events_and_final_nodes(self):
+        xml = FIXTURE.read_text()
+        events = []
+        opt = GreedyTreeOptimizer(
+            max_iterations=2, min_improvement=0.1, show_progress=False,
+            max_workers=4, use_incremental=True,
+        )
+        try:
+            result = opt.optimize(
+                xml, objective="dps", allow_point_increase=False,
+                on_iteration=events.append,
+            )
+        finally:
+            opt.shutdown()
+
+        assert len(events) == 2
+        assert [e.iteration for e in events] == [1, 2]
+        for e in events:
+            assert isinstance(e, IterationEvent)
+            assert e.name
+            assert e.points_used == 119
+            assert e.candidates_evaluated > 0
+            assert e.elapsed_s > 0
+            assert e.removed or e.added or e.masteries
+            for nid, name in e.removed + e.added:
+                assert isinstance(nid, int) and name
+        assert events[1].cumulative_pct >= events[0].cumulative_pct
+        assert events[0].cumulative_pct == pytest.approx(events[0].marginal_pct, rel=1e-6)
+        assert events[1].elapsed_s >= events[0].elapsed_s
+
+        assert result.cancelled is False
+        assert result.iterations == 2
+        assert result.final_nodes == get_passive_tree_summary(result.optimized_xml)["allocated_nodes"]
+        assert result.final_masteries == get_passive_tree_summary(result.optimized_xml)["mastery_effects"]
+        for mod, ev in zip(result.modifications_applied, events):
+            assert mod["modification"] == ev.name
+            assert mod["removed"] == [[nid, name] for nid, name in ev.removed]
+            assert mod["added"] == [[nid, name] for nid, name in ev.added]
+            assert mod["masteries"] == ev.masteries
+
+    def test_should_cancel_stops_after_first_iteration(self):
+        xml = FIXTURE.read_text()
+        events = []
+        opt = GreedyTreeOptimizer(
+            max_iterations=5, min_improvement=0.1, show_progress=False,
+            max_workers=4, use_incremental=True,
+        )
+        try:
+            result = opt.optimize(
+                xml, objective="dps", allow_point_increase=False,
+                on_iteration=events.append,
+                should_cancel=lambda: len(events) >= 1,
+            )
+        finally:
+            opt.shutdown()
+
+        assert result.cancelled is True
+        assert result.iterations == 1
+        assert len(events) == 1
+        assert result.optimized_xml != xml
+        assert get_passive_tree_summary(result.optimized_xml)["allocated_nodes"] != \
+            get_passive_tree_summary(xml)["allocated_nodes"]
+        assert result.final_nodes == get_passive_tree_summary(result.optimized_xml)["allocated_nodes"]

@@ -83,6 +83,19 @@ Download LuaJIT from https://luajit.org/download.html
 
 ## Quick Start
 
+### In the browser
+
+```bash
+poe-optimizer web
+```
+
+Opens `http://127.0.0.1:8765`: import a character from your account or paste a
+Path of Building code, choose Damage / Survivability / Both, watch the
+changes land, then copy the new build code back into PoB. Everything runs on
+your machine.
+
+### From the terminal
+
 ```bash
 # Analyze a build
 poe-optimizer analyze build.xml
@@ -127,6 +140,7 @@ poe-optimizer encode optimized.xml
 | `encode` | Convert XML to PoB import code |
 | `decode` | Convert PoB code to XML |
 | `setup` | Verify installation and dependencies |
+| `web` | Start the local browser UI |
 
 ### Optimization Options
 
@@ -241,6 +255,7 @@ poe-optimizer/
 │   │   ├── genetic_optimizer.py  # Genetic algorithm with parallel eval
 │   │   ├── tree_optimizer.py     # Greedy optimizer with batch eval
 │   │   └── multi_objective_optimizer.py
+│   ├── web/                    # Local web UI: FastAPI app, job runner, static page
 │   └── visualization/          # Plotting and analysis
 ├── PathOfBuilding/             # PoB submodule (calculation engine)
 ├── scripts/                    # Utility scripts
@@ -277,6 +292,22 @@ isort src/ tests/
 - **Jewel Contents:** Can swap jewel locations but doesn't optimize jewel contents or timeless seeds
 
 ## Changelog
+
+### v0.11.0
+- **Local web UI** (`poe-optimizer web`): one page for players who don't use
+  a terminal. Import a character from your account (character picker,
+  POESESSID for private profiles) or paste a PoB code; choose Damage,
+  Survivability or Both; watch each applied change stream in; get the tree
+  drawn from real node positions with removed nodes ghosted and added nodes
+  lit, before/after stats, an ordered change list, and a copy button for the
+  new code. FastAPI + a static page, no build step, loopback only.
+- Optimizer: `optimize()` accepts `on_iteration` (named removed/added nodes,
+  marginal and cumulative gain, points, candidates, elapsed) and
+  `should_cancel`; results carry `final_nodes`, `final_masteries`,
+  `cancelled`, and per-change node lists.
+- Tree data export (`src/web/tree_data.py`): 2,994 drawable nodes with
+  positions, edges, types and class starts for 3.29, ~70 KB gzipped.
+- New dependencies: fastapi, uvicorn, requests (runtime); httpx (tests).
 
 ### v0.10.0
 - **PoB submodule updated to v2.67.2** (from v2.60.0): 3.28 and 3.29 trees,
@@ -356,7 +387,8 @@ isort src/ tests/
 - [x] **v0.8** - Mastery optimization, jewel socket swapping, cluster notable reallocation
 - [x] **v0.9** - GGG account import, dynamic tree version detection
 - [x] **v0.10** - Incremental PoB evaluation, real parallelism, swap moves
-- [ ] **v0.11** - Life/EHP floors in the greedy loop, candidate caching, timeless LUT fix
+- [x] **v0.11** - Local web UI
+- [ ] **v0.12** - Life/EHP floors in the greedy loop, candidate caching, timeless LUT fix
 - [ ] **v1.0** - Item optimization, gem links, production ready
 
 ## Contributing

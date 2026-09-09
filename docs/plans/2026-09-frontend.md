@@ -1,6 +1,6 @@
 # Plan: Front end for players who don't use a terminal
 
-**Status:** active (implementation in progress)
+**Status:** done (v0.11.0), pending user feedback on the live page
 **Owner:** Alec + Claude session
 **Created:** 2026-09-09
 **Last updated:** 2026-09-09
@@ -208,7 +208,9 @@ A's contract; D on B's and C's. Integration is serial.
 
 ## Verification
 
-- `venv/bin/pytest tests/test_web_app.py tests/test_tree_data.py -q`
+- `venv/bin/pytest tests/test_web_app.py tests/test_tree_data.py -q` (done: 7 + 13 pass)
+- Correction from stream B: the 3.29 export has 2,994 drawable nodes, not
+  3,396; the other 402 are cluster/timeless-only passives with no position.
 - `poe-optimizer web` -> paste `tests/fixtures/builds/cyclone_slayer.txt`
   -> Damage -> result within ~90 s showing +40% and the tree diff; the copied
   code imports into PoB desktop and matches the hover deltas.
@@ -225,3 +227,8 @@ A's contract; D on B's and C's. Integration is serial.
 - 2026-09-09: account import chosen as the leading input (paste secondary).
 - 2026-09-09: "go build it" clicked. Streams A and B started as parallel
   agents; C and D written against the contracts in the orchestrating session.
+- 2026-09-09: A, B, C, D and integration complete. API verified end to end
+  (3 swaps in 39 s, named nodes streamed). Page opened for the user; no
+  headless browser was available for a screenshot, so visual QA is manual.
+  Not done: life/EHP floors (backlog), which is why the page has no
+  "keep at least N life" control yet.

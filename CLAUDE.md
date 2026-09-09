@@ -37,6 +37,7 @@ venv/bin/pytest tests/test_constraints.py -q    # fast unit subset
 venv/bin/python3 -m src.cli.main optimize tests/fixtures/builds/cyclone_slayer.xml --iterations 5
 venv/bin/python3 -m src.cli.main analyze build.xml
 venv/bin/python3 -m src.cli.main setup          # verify luajit + submodule
+venv/bin/python3 -m src.cli.main web --no-browser  # local UI on http://127.0.0.1:8765
 ```
 
 Tests that need luajit and the submodule are skipped automatically when either
@@ -79,10 +80,11 @@ CLI (src/cli)  ->  Optimizers (src/optimizer)  ->  IncrementalCalculator (src/po
 | Optimizers | `src/optimizer/tree_optimizer.py`, `genetic_optimizer.py`, `constraints.py`, `gem_optimizer.py` |
 | CLI | `src/cli/main.py`, `src/cli/commands/*.py` |
 | GGG import | `src/ggg/` |
+| Web UI | `src/web/app.py` (FastAPI, API), `src/web/jobs.py` (job runner, SSE), `src/web/tree_data.py`, `src/web/static/` (page, no build step) |
 | Fixture builds | `tests/fixtures/builds/cyclone_slayer.xml` (level 96 Slayer, 119 points, Lethal Pride, 3.27 tree) and `cyclone_slayer_3_29.xml` (same build on the newest tree) |
 
-Dead or dormant: `src/gui/` (shelved PyQt GUI), `src/web/`, `src/ml/`,
-`src/analyzer/`, `src/models/` are empty stubs.
+Dead or dormant: `src/gui/` (shelved PyQt GUI); `src/ml/`, `src/analyzer/`,
+`src/models/` are empty stubs.
 
 ## How we work (agentic workflow)
 
