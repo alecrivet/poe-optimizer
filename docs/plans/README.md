@@ -6,6 +6,6 @@ When a plan is done, note the shipping version at the top and move it to
 
 | Plan | Status |
 |---|---|
-| (none active) | |
+| [2026-09-frontend.md](2026-09-frontend.md) | active: local web UI (FastAPI + static SPA), narrative layout, PoE visual direction; implementation not started |
 
 Recently completed: see `../archive/` and the README changelog.
