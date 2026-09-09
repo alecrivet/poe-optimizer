@@ -17,6 +17,25 @@ from ..pob.xml_parser import parse_pob_stats as parse_pob_xml
 logger = logging.getLogger(__name__)
 
 
+def count_passive_points_in_xml(xml: str) -> int:
+    """
+    Count regular passive points allocated in a build XML.
+
+    Excludes the class start node and ascendancy nodes, which the XML lists
+    alongside normal passives but which do not consume passive points.
+    Falls back to the raw node count if the tree graph cannot be loaded.
+    """
+    summary = get_passive_tree_summary(xml)
+    allocated = summary['allocated_nodes']
+    try:
+        from ..pob.tree_parser import load_passive_tree
+        tree = load_passive_tree(summary.get('tree_version'))
+        return tree.count_passive_points(allocated)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Could not load tree graph for point counting: {e}")
+        return len(allocated)
+
+
 @dataclass
 class PointBudgetConstraint:
     """
@@ -31,8 +50,7 @@ class PointBudgetConstraint:
 
     def validate(self, xml: str) -> bool:
         """Check if build satisfies point budget."""
-        summary = get_passive_tree_summary(xml)
-        total_points = len(summary['allocated_nodes'])
+        total_points = count_passive_points_in_xml(xml)
 
         if self.min_points is not None and total_points < self.min_points:
             return False
@@ -43,8 +61,7 @@ class PointBudgetConstraint:
 
     def get_violation_message(self, xml: str) -> Optional[str]:
         """Get human-readable violation message."""
-        summary = get_passive_tree_summary(xml)
-        total_points = len(summary['allocated_nodes'])
+        total_points = count_passive_points_in_xml(xml)
 
         if self.min_points is not None and total_points < self.min_points:
             return f"Too few points: {total_points} < {self.min_points}"
@@ -84,9 +101,9 @@ class PointBudgetConstraint:
         Returns:
             PointBudgetConstraint
         """
-        # Formula: base (20) + levels (level - 1) + quests (22)
-        # But typically simplified to: level + 21
-        max_points = level + 21
+        # A character has (level - 1) points from levelling plus up to 22
+        # quest points and 2 from killing all bandits: level + 23 at most.
+        max_points = level + 23
 
         min_points = max_points + min_offset if min_offset < 0 else None
 
@@ -386,7 +403,7 @@ def auto_constraints_from_xml(xml: str) -> Optional[ConstraintSet]:
         logger.warning(f"Invalid character level: {level}")
         return None
 
-    logger.info(f"Auto-detected character level {level}, max points = {level + 21}")
+    logger.info(f"Auto-detected character level {level}, max points = {level + 23}")
     return ConstraintSet(
         point_budget=PointBudgetConstraint.from_level(level, min_offset=-5)
     )

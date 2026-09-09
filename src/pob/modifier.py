@@ -12,7 +12,7 @@ Modification Strategy:
 """
 
 import xml.etree.ElementTree as ET
-from typing import List, Optional, Dict, Set
+from typing import Iterable, List, Optional, Dict, Set
 import logging
 
 logger = logging.getLogger(__name__)
@@ -148,6 +148,53 @@ def modify_passive_tree_nodes(
         f"{len(mastery_effects)} mastery effects"
     )
 
+    return ET.tostring(root, encoding="unicode")
+
+
+def set_passive_tree(
+    xml: str,
+    nodes: Iterable[int],
+    mastery_effects: Optional[Dict[int, int]] = None,
+) -> str:
+    """
+    Replace the active spec's allocated nodes and mastery selections outright.
+
+    Used by the incremental optimizer, which tracks the tree as a node set and
+    only needs to write it back into the XML at the end (or when a candidate
+    that changes items forces a full reload).
+
+    Args:
+        xml: PoB build XML string
+        nodes: Complete set of allocated node IDs
+        mastery_effects: {mastery_node_id: effect_id}; entries for nodes that
+            are not allocated are dropped.
+
+    Returns:
+        Modified XML string
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as e:
+        raise BuildModificationError(f"Invalid XML: {e}")
+
+    tree_elem = root.find(".//Tree")
+    if tree_elem is None:
+        raise BuildModificationError("No <Tree> element found in build")
+    spec_elem = tree_elem.find(".//Spec[@activeSpec='true']")
+    if spec_elem is None:
+        spec_elem = tree_elem.find(".//Spec")
+    if spec_elem is None:
+        raise BuildModificationError("No <Spec> element found in tree")
+
+    node_set = set(int(n) for n in nodes)
+    effects = {
+        int(k): int(v)
+        for k, v in (mastery_effects or {}).items()
+        if int(k) in node_set
+    }
+
+    spec_elem.set("nodes", ",".join(str(n) for n in sorted(node_set)))
+    spec_elem.set("masteryEffects", _format_mastery_effects(effects))
     return ET.tostring(root, encoding="unicode")
 
 

@@ -56,22 +56,24 @@ class TestPointBudgetConstraintNodeCount:
 class TestPointBudgetFromLevel:
     """Tests for PointBudgetConstraint.from_level."""
 
+    # (level - 1) from levelling + 22 quest points + 2 bandit points = level + 23
+
     def test_from_level_100(self):
         constraint = PointBudgetConstraint.from_level(100)
-        assert constraint.max_points == 121  # 100 + 21
+        assert constraint.max_points == 123
 
     def test_from_level_100_with_offset(self):
         constraint = PointBudgetConstraint.from_level(100, min_offset=-5)
-        assert constraint.max_points == 121
-        assert constraint.min_points == 116  # 121 - 5
+        assert constraint.max_points == 123
+        assert constraint.min_points == 118  # 123 - 5
 
     def test_from_level_50(self):
         constraint = PointBudgetConstraint.from_level(50)
-        assert constraint.max_points == 71  # 50 + 21
+        assert constraint.max_points == 73
 
     def test_from_level_1(self):
         constraint = PointBudgetConstraint.from_level(1)
-        assert constraint.max_points == 22  # 1 + 21
+        assert constraint.max_points == 24
 
 
 class TestConstraintSetDelegation:
@@ -117,8 +119,8 @@ class TestAutoConstraintsFromXml:
         cs = auto_constraints_from_xml(xml)
         assert cs is not None
         assert cs.point_budget is not None
-        assert cs.point_budget.max_points == 116  # 95 + 21
-        assert cs.point_budget.min_points == 111  # 116 - 5
+        assert cs.point_budget.max_points == 118  # 95 + 23
+        assert cs.point_budget.min_points == 113  # 118 - 5
         assert cs.attributes is None
         assert cs.jewel_sockets is None
 
@@ -126,13 +128,13 @@ class TestAutoConstraintsFromXml:
         xml = '<PathOfBuilding><Build level="50" className="Ranger"></Build></PathOfBuilding>'
         cs = auto_constraints_from_xml(xml)
         assert cs is not None
-        assert cs.point_budget.max_points == 71  # 50 + 21
+        assert cs.point_budget.max_points == 73  # 50 + 23
 
     def test_auto_from_xml_level_100(self):
         xml = '<PathOfBuilding><Build level="100" className="Witch"></Build></PathOfBuilding>'
         cs = auto_constraints_from_xml(xml)
         assert cs is not None
-        assert cs.point_budget.max_points == 121
+        assert cs.point_budget.max_points == 123
 
     def test_auto_from_xml_no_level(self):
         xml = '<PathOfBuilding><Build className="Witch"></Build></PathOfBuilding>'
@@ -143,3 +145,28 @@ class TestAutoConstraintsFromXml:
         xml = '<PathOfBuilding><Build level="200" className="Witch"></Build></PathOfBuilding>'
         cs = auto_constraints_from_xml(xml)
         assert cs is None
+
+
+class TestPassivePointCounting:
+    """Class start and ascendancy nodes must not count as passive points."""
+
+    def test_real_build_counts_only_passives(self):
+        from pathlib import Path
+        from src.optimizer.constraints import count_passive_points_in_xml
+        from src.pob.modifier import get_passive_tree_summary
+
+        fixture = Path(__file__).parent / "fixtures" / "builds" / "cyclone_slayer.xml"
+        xml = fixture.read_text()
+        raw = len(get_passive_tree_summary(xml)["allocated_nodes"])
+        points = count_passive_points_in_xml(xml)
+        # The XML lists 130 nodes; PoB reports 119 passive points for this level 96 build
+        assert points < raw
+        assert points == 119
+
+    def test_real_build_within_auto_budget(self):
+        from pathlib import Path
+        fixture = Path(__file__).parent / "fixtures" / "builds" / "cyclone_slayer.xml"
+        xml = fixture.read_text()
+        cs = auto_constraints_from_xml(xml)
+        assert cs is not None
+        assert cs.point_budget.validate(xml), cs.point_budget.get_violation_message(xml)

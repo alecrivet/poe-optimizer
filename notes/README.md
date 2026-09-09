@@ -1,4 +1,7 @@
-# Development Notes
+# Development Notes (historical)
+
+> These are the session logs and phase guides from the first weeks of the project (October-November 2025). The session-notes workflow described below is no longer used; the current process is in `../CLAUDE.md` and `../docs/DEVELOPMENT.md`, and plans live in `../docs/plans/`. Nothing here reflects the current code.
+
 
 This directory contains session notes, decisions, and references to help maintain context across development sessions.
 

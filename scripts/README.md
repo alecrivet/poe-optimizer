@@ -2,6 +2,14 @@
 
 Utility scripts for development, debugging, and analysis.
 
+## Top-level scripts
+
+- **benchmark_evaluation.py** - Reproduces the timings in `docs/PERFORMANCE.md` (worker start, full reload, `LOAD`/`SET`/`DELTA`, pool throughput). Run this before and after touching the evaluation path.
+- **compare_optimizers.py** - Runs greedy and genetic on a build and saves both results to `output/`.
+- **test_genetic_optimizer.py** - Quick genetic optimizer smoke run.
+- **decompress_timeless_data.py** - Unpacks PoB's timeless jewel LUT data.
+- **run_gui.py** - Launches the shelved PyQt GUI (requires the `gui` extra).
+
 ## Structure
 
 ### `analysis/`
@@ -27,8 +35,11 @@ Demo scripts showing basic functionality.
 All scripts can be run directly from the project root:
 
 ```bash
+# Benchmark the evaluation path
+venv/bin/python3 scripts/benchmark_evaluation.py --workers 8
+
 # Run analysis
-python scripts/analysis/analyze_tree.py
+venv/bin/python3 scripts/analysis/analyze_tree.py
 
 # Run demos
 python scripts/demos/demo_codec.py

@@ -4,9 +4,14 @@ Batch Calculator - Fast build evaluation using persistent worker pool.
 This module provides BatchCalculator, a drop-in replacement for RelativeCalculator
 that uses a pool of persistent PoB workers for much faster evaluation.
 
-Performance improvement:
-- RelativeCalculator: ~600ms per evaluation (subprocess startup overhead)
-- BatchCalculator: ~100ms per evaluation (reuses initialized workers)
+Performance (measured, see docs/PERFORMANCE.md):
+- RelativeCalculator: ~13 s per evaluation cold (fresh luajit process + full build load)
+- BatchCalculator: 1-5 s per evaluation (persistent workers, but still a full
+  build reload per call), parallel across workers.
+
+For passive-tree changes prefer IncrementalCalculator (src/pob/incremental_calculator.py),
+which loads the build once and scores each change in ~0.05-0.2 s. BatchCalculator
+remains for candidates that change items/gems (e.g. the gem optimizer).
 """
 
 import logging

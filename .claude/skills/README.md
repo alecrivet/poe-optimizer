@@ -13,11 +13,11 @@ Create conventional commit messages with proper formatting.
 ```
 
 **Features:**
-- Analyzes staged changes
-- Creates conventional commit message (feat/fix/docs/etc.)
-- Includes scope and description
-- Follows project commit style
-- Asks before pushing
+- Analyzes staged changes and checks the submodule is untouched
+- Ensures the README changelog covers the change
+- Creates a conventional commit message (feat/fix/perf/docs/etc.)
+- Uses the session's attribution trailer
+- Never pushes unless asked
 
 ---
 
@@ -157,12 +157,11 @@ Refresh Claude's memory after compaction or new session.
 ```
 
 **Features:**
-- Reads project README and documentation
-- Reviews recent commits and changes
-- Summarizes current branch state
-- Identifies active tasks and next steps
-- Provides full project context
-- Perfect after `/compact` or starting new session
+- Reads CLAUDE.md, docs/BACKLOG.md and active plans in docs/plans/
+- Reviews git state and recent commits
+- Runs the fast (no-PoB) tests
+- Summarizes version, working tree, active plans, next step
+- Use after `/compact` or when starting a new session
 
 ---
 
@@ -192,9 +191,10 @@ Place new skills in `.claude/skills/` directory.
 
 ## Tips
 
+- The conventions these skills follow live in `CLAUDE.md` and `docs/DEVELOPMENT.md`; the skills are thin prompts.
 - Use `/refresh` after compaction or starting a new session
 - Use `/commit` after every logical change
-- Run `/test` before committing
-- Use `/review` before creating PRs
+- Run `/test` before committing; the full suite spawns luajit workers and takes ~4 minutes
+- Use `/review` (or the built-in `/code-review`) before creating PRs; carry open findings into `docs/BACKLOG.md`
 - `/quick` for minor fixes, `/refactor` for major improvements
-- `/summary` before standup meetings or PR creation
+- `/summary` before PR creation

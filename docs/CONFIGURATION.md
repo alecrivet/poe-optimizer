@@ -1,5 +1,8 @@
 # Configuration & Tuning Guide
 
+> **Status (v0.10):** This document describes the Python API parameters. CLI flags are in `USER_GUIDE.md`. Parameters added since v0.7 (`max_workers`, `use_incremental`, `swap_candidates`, `optimize_jewel_sockets`, `allow_cluster_optimization`, `constraints`) are documented in the class docstrings in `src/optimizer/tree_optimizer.py` and `genetic_optimizer.py`.
+
+
 This guide documents all configuration parameters for the PoE Build Optimizer and provides recommendations for different use cases.
 
 ## Table of Contents

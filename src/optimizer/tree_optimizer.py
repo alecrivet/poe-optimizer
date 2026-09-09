@@ -22,6 +22,7 @@ Features:
 
 import logging
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor, BrokenExecutor, as_completed
 from typing import Dict, List, Optional, Tuple, Callable
 from dataclasses import dataclass
@@ -34,9 +35,15 @@ except ImportError:
     tqdm = None
 
 from ..pob.codec import encode_pob_code, decode_pob_code
-from ..pob.modifier import modify_passive_tree_nodes, get_passive_tree_summary
+from ..pob.modifier import modify_passive_tree_nodes, get_passive_tree_summary, set_passive_tree
 from ..pob.relative_calculator import RelativeCalculator, RelativeEvaluation
 from ..pob.batch_calculator import BatchCalculator
+from ..pob.incremental_calculator import (
+    IncrementalCalculator,
+    IncrementalCalculatorError,
+    DeltaEvaluation,
+)
+from ..pob.worker_pool import TreeDelta
 from ..pob.mastery_optimizer import (
     get_mastery_database,
     MasteryOptimizer,
@@ -60,6 +67,10 @@ MAX_CANDIDATES_PER_TYPE = 20
 
 # Maximum number of jewel swap candidates to evaluate
 MAX_JEWEL_CANDIDATES = 15
+
+# Incremental mode: how many of the best single removals/additions are
+# combined into "swap" (remove one, add one) candidates each iteration.
+DEFAULT_SWAP_CANDIDATES = 8
 
 
 def _evaluate_candidate(args: Tuple[str, str, str]) -> Tuple[str, str, Optional[RelativeEvaluation]]:
@@ -141,6 +152,8 @@ class GreedyTreeOptimizer:
         show_progress: bool = True,  # Show progress bars during optimization
         tree_version: Optional[str] = None,  # Tree version (None = auto-detect)
         constraints: Optional[ConstraintSet] = None,  # Point budget / attribute constraints
+        use_incremental: bool = True,  # Use PoB's incremental calculator (fast path)
+        swap_candidates: int = DEFAULT_SWAP_CANDIDATES,  # Swap combos per iteration (incremental)
     ):
         """
         Initialize the optimizer.
@@ -158,8 +171,20 @@ class GreedyTreeOptimizer:
                          None = use CPU count, 1 = sequential (no parallelism)
             use_batch_evaluation: EXPERIMENTAL - If True, use persistent worker pool.
             show_progress: If True, show progress bars during optimization.
+            use_incremental: If True (default), load the build into a pool of
+                PoB workers once and score every candidate with PoB's own
+                incremental calculator (~0.2 s per candidate, parallel).
+                Falls back to the legacy XML-reload path if the workers cannot
+                be started.
+            swap_candidates: In incremental mode, the N best removals and N
+                best additions are also paired into remove+add swap candidates
+                so the optimizer can reallocate points without changing the
+                point count.
         """
         self.max_iterations = max_iterations
+        self.use_incremental = use_incremental
+        self.swap_candidates = swap_candidates
+        self.incremental_calculator: Optional[IncrementalCalculator] = None
         self.min_improvement = min_improvement
         self.max_points_change = max_points_change
         self.optimize_masteries = optimize_masteries
@@ -298,6 +323,16 @@ class GreedyTreeOptimizer:
             except (ValueError, KeyError, AttributeError) as e:
                 logger.warning(f"Failed to extract build context: {e}")
                 self.build_context = None
+
+        # Fast path: incremental evaluation inside persistent PoB workers
+        if self.use_incremental:
+            try:
+                return self._optimize_incremental(build_xml, objective, allow_point_increase)
+            except IncrementalCalculatorError as e:
+                logger.warning(f"Incremental evaluation unavailable ({e}); falling back to XML reload path")
+                if self.incremental_calculator:
+                    self.incremental_calculator.shutdown()
+                    self.incremental_calculator = None
 
         # Start batch calculator if using batch evaluation
         if self.use_batch_evaluation and self.batch_calculator:
@@ -537,12 +572,354 @@ class GreedyTreeOptimizer:
             constraint_violations=constraint_violations,
         )
 
+    # ------------------------------------------------------------------ #
+    # Incremental (fast) optimisation path
+    # ------------------------------------------------------------------ #
+
+    def _optimize_incremental(
+        self,
+        build_xml: str,
+        objective: str,
+        allow_point_increase: bool,
+    ) -> OptimizationResult:
+        """
+        Greedy optimisation using PoB's incremental calculator.
+
+        The build is loaded into every worker once. Each iteration evaluates,
+        in parallel and without reparsing the build:
+
+        * every mastery effect alternative on allocated mastery nodes
+        * removal of every removable allocated node (PoB prunes dependents)
+        * allocation of every unallocated neighbour (masteries with each effect)
+        * remove+add swaps built from the best singles (point-neutral moves)
+        * jewel socket / Thread of Hope / cluster candidates (full reload) when enabled
+
+        The best marginal improvement is committed as the new base tree.
+        """
+        if self.incremental_calculator is None:
+            self.incremental_calculator = IncrementalCalculator(num_workers=self.max_workers)
+        calc = self.incremental_calculator
+
+        logger.info(f"Starting PoB workers ({self.max_workers} requested)...")
+        calc.start()
+        baseline_eval = calc.load(build_xml)
+        logger.info(f"Session ready on {calc.num_workers} workers")
+
+        # Tree graph is needed to enumerate neighbours and classify nodes
+        if self.tree_graph is None:
+            self.tree_graph = load_passive_tree(self.tree_version)
+
+        # Nodes the optimizer must never touch
+        protected: set = set()
+        try:
+            registry = JewelRegistry.from_build_xml(build_xml)
+            protected = set(registry.get_protected_nodes())
+        except Exception as e:
+            logger.debug(f"Jewel protection unavailable: {e}")
+        class_starts = set(self.tree_graph.class_start_nodes.values())
+
+        current_xml = build_xml
+        original_points = calc.current_points or 0
+        original_node_count = len(calc.current_nodes)
+        modifications_applied = []
+        improvement_history = []
+        cumulative_improvement = 0.0
+
+        iteration_pbar = None
+        if self.show_progress:
+            iteration_pbar = tqdm(
+                total=self.max_iterations,
+                desc="Optimizing",
+                unit="iter",
+                leave=True,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}",
+            )
+            iteration_pbar.set_postfix_str("improvement: +0.00%")
+
+        for iteration in range(self.max_iterations):
+            allocated = set(calc.current_nodes)
+            masteries = dict(calc.current_masteries)
+            current_points = calc.current_points or 0
+
+            deltas = self._generate_delta_candidates(allocated, masteries, protected, class_starts)
+            if iteration_pbar:
+                iteration_pbar.set_description(f"Iter {iteration+1}: {len(deltas)} candidates")
+            logger.info(f"Iteration {iteration + 1}: evaluating {len(deltas)} delta candidates")
+
+            t_iter = time.time()
+            single_evals: Dict[str, DeltaEvaluation] = calc.evaluate_deltas(deltas) if deltas else {}
+            t_singles = time.time() - t_iter
+
+            # Swap candidates are built from the *unfiltered* singles: an
+            # addition that is over budget on its own is exactly what a
+            # point-neutral remove+add swap is for.
+            swaps = self._generate_swap_candidates(deltas, single_evals, objective)
+            swap_evals: Dict[str, DeltaEvaluation] = {}
+            t_swaps = 0.0
+            if swaps:
+                t0 = time.time()
+                swap_evals = calc.evaluate_deltas(swaps)
+                t_swaps = time.time() - t0
+
+            evaluations = self._filter_incremental(
+                {**single_evals, **swap_evals}, original_points, original_node_count,
+                allow_point_increase, protected,
+            )
+            logger.info(
+                f"Evaluated {len(single_evals)} singles in {t_singles:.1f}s, "
+                f"{len(swap_evals)} swaps in {t_swaps:.1f}s; {len(evaluations)} within budget"
+            )
+
+            # Candidates that change items/jewels need a full reload
+            xml_candidates: Dict[str, str] = {}
+            if self.optimize_jewel_sockets and self.socket_discovery:
+                xml_candidates = self._generate_xml_candidates(current_xml, allocated, objective)
+                if xml_candidates:
+                    logger.info(f"Evaluating {len(xml_candidates)} jewel/cluster candidates (full reload)")
+                    evaluations.update(calc.evaluate_xmls(xml_candidates))
+
+            if not evaluations:
+                logger.info("No valid candidates - stopping")
+                break
+
+            best_name, best = max(
+                evaluations.items(),
+                key=lambda kv: self._get_improvement_value(kv[1].evaluation, objective),
+            )
+            improvement = self._get_improvement_value(best.evaluation, objective)
+
+            for name, ev in sorted(
+                evaluations.items(),
+                key=lambda kv: self._get_improvement_value(kv[1].evaluation, objective),
+                reverse=True,
+            )[:5]:
+                logger.info(f"  {name}: {self._get_improvement_value(ev.evaluation, objective):+.2f}% {objective}")
+
+            if improvement < self.min_improvement:
+                logger.info(
+                    f"Best candidate {best_name} ({improvement:+.2f}%) below threshold "
+                    f"{self.min_improvement}% - stopping"
+                )
+                if iteration_pbar:
+                    iteration_pbar.set_postfix_str(f"done! +{cumulative_improvement:.2f}%")
+                break
+
+            # Commit the winner
+            if best_name in xml_candidates:
+                current_xml = xml_candidates[best_name]
+                calc.reload(current_xml)
+            else:
+                delta = deltas.get(best_name) or swaps.get(best_name)
+                new_nodes = best.nodes if best.nodes is not None else allocated
+                new_masteries = {k: v for k, v in masteries.items() if k in new_nodes}
+                if delta is not None and delta.masteries:
+                    for k, v in delta.masteries.items():
+                        if k in new_nodes:
+                            new_masteries[k] = v
+                calc.commit(sorted(new_nodes), new_masteries)
+                current_xml = set_passive_tree(current_xml, new_nodes, new_masteries)
+
+            cumulative_improvement = self._get_improvement_value(
+                calc.evaluate_current_vs_original(), objective
+            )
+            modifications_applied.append({
+                "iteration": iteration + 1,
+                "modification": best_name,
+                "improvement_pct": improvement,
+                "points_used": calc.current_points,
+            })
+            improvement_history.append(improvement)
+            logger.info(
+                f"Applied: {best_name} ({improvement:+.2f}% {objective}, "
+                f"total {cumulative_improvement:+.2f}%, {calc.current_points} points)"
+            )
+            if iteration_pbar:
+                iteration_pbar.update(1)
+                iteration_pbar.set_postfix_str(f"improvement: +{cumulative_improvement:.2f}%")
+                iteration_pbar.set_description(f"Iter {iteration+1}: applied {best_name[:30]}")
+
+        if iteration_pbar:
+            iteration_pbar.close()
+
+        final_eval = calc.evaluate_current_vs_original()
+        logger.info(
+            f"Optimization complete after {len(modifications_applied)} improvements "
+            f"(total: {final_eval.dps_change_percent:+.1f}% DPS, "
+            f"{final_eval.life_change_percent:+.1f}% Life)"
+        )
+
+        constraint_violations = []
+        if self.constraints:
+            constraint_violations = self.constraints.get_violations(current_xml)
+            for v in constraint_violations:
+                logger.warning(f"Constraint violation in final result: {v}")
+
+        return OptimizationResult(
+            original_xml=build_xml,
+            optimized_xml=current_xml,
+            original_stats=baseline_eval,
+            optimized_stats=final_eval,
+            iterations=len(modifications_applied),
+            modifications_applied=modifications_applied,
+            improvement_history=improvement_history,
+            constraint_violations=constraint_violations,
+        )
+
+    def _node_is_removable(self, node_id: int, protected: set, class_starts: set) -> bool:
+        if node_id in protected or node_id in class_starts:
+            return False
+        if node_id >= 65536 and not self.allow_cluster_optimization:
+            return False
+        node = self.tree_graph.get_node(node_id) if self.tree_graph else None
+        if node is None:
+            # Cluster/unknown nodes: leave alone
+            return False
+        if node.is_ascendancy or node.node_type == "ascendancy_start":
+            return False
+        if node.node_type == "jewel" and node_id in protected:
+            return False
+        return True
+
+    def _generate_delta_candidates(
+        self,
+        allocated: set,
+        masteries: Dict[int, int],
+        protected: set,
+        class_starts: set,
+    ) -> Dict[str, TreeDelta]:
+        """Enumerate single-move candidates as TreeDeltas."""
+        deltas: Dict[str, TreeDelta] = {}
+
+        # Mastery effect alternatives on allocated mastery nodes
+        if self.optimize_masteries and self.mastery_db:
+            for node_id in sorted(allocated):
+                if node_id in protected or not self.mastery_db.is_mastery_node(node_id):
+                    continue
+                current = masteries.get(node_id)
+                for effect in self.mastery_db.get_available_effects(node_id):
+                    if effect.effect_id == current:
+                        continue
+                    deltas[f"Mastery {node_id} -> effect {effect.effect_id}"] = TreeDelta(
+                        masteries={node_id: effect.effect_id}
+                    )
+
+        # Removals (PoB prunes any nodes that become disconnected)
+        for node_id in sorted(allocated):
+            if not self._node_is_removable(node_id, protected, class_starts):
+                continue
+            node = self.tree_graph.get_node(node_id)
+            if node.is_mastery:
+                continue  # masteries go away with their parent notable
+            deltas[f"Remove node {node_id} ({node.name})"] = TreeDelta(remove=[node_id])
+
+        # Additions: unallocated neighbours of the current tree
+        if self.enable_node_addition and self.tree_graph:
+            for node_id in sorted(self.tree_graph.find_unallocated_neighbors(allocated)):
+                node = self.tree_graph.get_node(node_id)
+                if node is None or node.is_ascendancy or node_id in protected or node_id >= 65536:
+                    continue
+                if node.is_mastery:
+                    if not (self.optimize_masteries and self.mastery_db):
+                        continue
+                    for effect in self.mastery_db.get_available_effects(node_id):
+                        deltas[f"Add mastery {node_id} ({node.name}) effect {effect.effect_id}"] = TreeDelta(
+                            add=[node_id], masteries={node_id: effect.effect_id}
+                        )
+                    continue
+                if node.node_type == "jewel":
+                    continue  # empty socket adds nothing without a jewel
+                deltas[f"Add node {node_id} ({node.name})"] = TreeDelta(add=[node_id])
+
+        return deltas
+
+    def _generate_swap_candidates(
+        self,
+        deltas: Dict[str, TreeDelta],
+        evaluations: Dict[str, DeltaEvaluation],
+        objective: str,
+    ) -> Dict[str, TreeDelta]:
+        """Pair the best single removals with the best single additions."""
+        k = self.swap_candidates
+        if k <= 0:
+            return {}
+
+        def score(name):
+            return self._get_improvement_value(evaluations[name].evaluation, objective)
+
+        removals = [n for n in evaluations if n in deltas and deltas[n].remove and not deltas[n].add]
+        additions = [n for n in evaluations if n in deltas and deltas[n].add and not deltas[n].remove]
+        removals.sort(key=score, reverse=True)
+        additions.sort(key=score, reverse=True)
+
+        swaps: Dict[str, TreeDelta] = {}
+        for r in removals[:k]:
+            for a in additions[:k]:
+                rd, ad = deltas[r], deltas[a]
+                if set(rd.remove) & set(ad.add):
+                    continue
+                mast = dict(ad.masteries) if ad.masteries else None
+                swaps[f"Swap: {r} / {a}"] = TreeDelta(remove=list(rd.remove), add=list(ad.add), masteries=mast)
+        return swaps
+
+    def _generate_xml_candidates(self, current_xml: str, allocated: set, objective: str) -> Dict[str, str]:
+        """Jewel socket / Thread of Hope / cluster candidates (need full reload)."""
+        candidates: Dict[str, str] = {}
+        try:
+            candidates.update(self._generate_jewel_swap_candidates(current_xml, allocated, objective))
+        except Exception as e:
+            logger.debug(f"Failed to generate jewel swap candidates: {e}")
+        if self.thread_of_hope_optimizer:
+            try:
+                candidates.update(self._generate_thread_of_hope_candidates(current_xml, allocated, objective))
+            except Exception as e:
+                logger.debug(f"Failed to generate Thread of Hope candidates: {e}")
+        if self.cluster_optimizer and self.allow_cluster_optimization:
+            try:
+                candidates.update(self._generate_cluster_candidates(current_xml, allocated, objective))
+            except Exception as e:
+                logger.debug(f"Failed to generate cluster candidates: {e}")
+        return candidates
+
+    def _filter_incremental(
+        self,
+        evaluations: Dict[str, DeltaEvaluation],
+        original_points: int,
+        original_node_count: int,
+        allow_point_increase: bool,
+        protected: Optional[set] = None,
+    ) -> Dict[str, DeltaEvaluation]:
+        """Drop candidates that violate the point budget or lose a protected node."""
+        kept: Dict[str, DeltaEvaluation] = {}
+        for name, ev in evaluations.items():
+            if protected and ev.nodes is not None and not protected <= ev.nodes:
+                # Removing a path node made PoB prune a jewel socket / cluster node
+                logger.debug(f"Skipping '{name}': would deallocate protected nodes")
+                continue
+            points = ev.points_used
+            if points is None:
+                kept[name] = ev
+                continue
+            if not allow_point_increase and points > original_points:
+                continue
+            if abs(points - original_points) > self.max_points_change:
+                continue
+            if self.constraints and self.constraints.point_budget:
+                # points_used is PoB's own passive point count (no class start / ascendancy)
+                if not self.constraints.validate_node_count(points):
+                    continue
+            kept[name] = ev
+        return kept
+
     def shutdown(self):
         """
         Shutdown the optimizer and release resources.
 
         Call this when done with optimization if using batch evaluation.
         """
+        if self.incremental_calculator:
+            logger.info("Shutting down PoB workers...")
+            self.incremental_calculator.shutdown()
+            self.incremental_calculator = None
         if self.batch_calculator:
             logger.info("Shutting down batch calculator...")
             self.batch_calculator.shutdown()

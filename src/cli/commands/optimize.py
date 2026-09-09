@@ -3,6 +3,7 @@ Optimize command - Main optimization workflow.
 """
 
 import click
+import json
 import logging
 import time
 from typing import Optional
@@ -96,6 +97,18 @@ logger = logging.getLogger(__name__)
     help="Disable point budget constraints. Default: constraints enabled."
 )
 @click.option(
+    "--workers", "-w",
+    type=int,
+    default=None,
+    help="PoB worker processes for evaluation. Default: CPU count."
+)
+@click.option(
+    "--incremental/--no-incremental",
+    default=True,
+    help="Score candidates with PoB's incremental calculator inside persistent "
+         "workers (fast). --no-incremental reloads the build XML for every candidate."
+)
+@click.option(
     "--pob-code", "-c",
     is_flag=True,
     help="Output PoB code instead of stats."
@@ -143,6 +156,8 @@ def optimize(
     min_ehp: Optional[int],
     max_points: Optional[int],
     disable_constraints: bool,
+    workers: Optional[int],
+    incremental: bool,
     pob_code: bool,
     optimize_gems: bool,
     main_skill: Optional[str],
@@ -172,7 +187,9 @@ def optimize(
     from src.pob.modifier import get_passive_tree_summary
     from src.pob.jewel.registry import JewelRegistry
 
-    output = get_output_handler(ctx, json_output, output_file)
+    # The summary goes to the console (or stdout as JSON); files are written
+    # explicitly below according to the output extension.
+    output = get_output_handler(ctx, json_output, None)
 
     # Load input
     output.progress(f"Loading build from {input_source}...")
@@ -219,6 +236,9 @@ def optimize(
                 min_improvement=0.1,
                 optimize_masteries=optimize_masteries,
                 constraints=constraints,
+                max_workers=workers,
+                use_incremental=incremental,
+                max_points_change=max_point_change,
             )
             result = optimizer.optimize(
                 build_xml,
@@ -246,6 +266,9 @@ def optimize(
                 mutation_rate=mutation_rate,
                 optimize_masteries=optimize_masteries,
                 constraints=constraints,
+                max_workers=workers,
+                use_incremental=incremental,
+                max_points_change=max_point_change,
             )
             result = optimizer.optimize(build_xml, objective=objective)
 
@@ -310,6 +333,48 @@ def optimize(
     except Exception as e:
         logger.debug("Optimization failed", exc_info=True)
         raise click.ClickException(f"Optimization failed: {e}")
+    finally:
+        # Release PoB worker processes
+        opt = locals().get("optimizer")
+        if opt is not None and hasattr(opt, "shutdown"):
+            try:
+                opt.shutdown()
+            except Exception:
+                logger.debug("Optimizer shutdown failed", exc_info=True)
+
+    # Gem optimization (runs after tree optimization)
+    gem_swaps = []
+    if optimize_gems:
+        output.progress("Starting support gem optimization...")
+        try:
+            from src.pob.gem_database import GemDatabase
+            from src.pob.batch_calculator import BatchCalculator
+            from src.optimizer.gem_optimizer import GreedyGemOptimizer
+
+            gem_db = GemDatabase.from_pob_data()
+            gem_optimizer = GreedyGemOptimizer(gem_db)
+
+            with BatchCalculator() as gem_calc:
+                gem_result = gem_optimizer.optimize(
+                    optimized_xml,
+                    calculator=gem_calc,
+                    objective=objective,
+                    main_skill_override=main_skill,
+                )
+
+            optimized_xml = gem_result.optimized_xml
+            gem_swaps = gem_result.swaps
+
+            if gem_swaps:
+                output.info(f"Gem optimization: {len(gem_swaps)} support gem(s) swapped")
+                for swap in gem_swaps:
+                    output.info(f"  {swap.old_name} -> {swap.new_name} ({swap.dps_change_percent:+.1f}% {objective})")
+            else:
+                output.info("Gem optimization: current supports are already optimal")
+
+        except Exception as e:
+            logger.debug("Gem optimization failed", exc_info=True)
+            output.warning(f"Gem optimization failed: {e}")
 
     # Gem optimization (runs after tree optimization)
     gem_swaps = []
@@ -392,13 +457,30 @@ def optimize(
             click.echo(f"  {optimized_code[:80]}...")
             click.echo(f"\nCopy the full code with: poe-optimizer optimize {input_source} --pob-code")
 
-        # ALWAYS save PoB code to a .txt file alongside the output
         if output_file:
-            pob_file = output_file.replace('.xml', '.txt').replace('.json', '.txt')
-            if not pob_file.endswith('.txt'):
-                pob_file += '.txt'
-            with open(pob_file, "w") as f:
-                f.write(optimized_code)
-            output.info(f"PoB code also saved to: {pob_file}")
+            # .xml  -> optimized build XML (importable into PoB via decode/encode)
+            # .json -> summary + PoB code
+            # else  -> PoB code
+            lower = output_file.lower()
+            if lower.endswith(".xml"):
+                with open(output_file, "w") as f:
+                    f.write(optimized_xml)
+                output.success(f"Optimized build XML saved to: {output_file}")
+            elif lower.endswith(".json"):
+                results["pob_code"] = optimized_code
+                with open(output_file, "w") as f:
+                    json.dump(results, f, indent=2, default=str)
+                output.success(f"Summary saved to: {output_file}")
+            else:
+                with open(output_file, "w") as f:
+                    f.write(optimized_code)
+                output.success(f"PoB code saved to: {output_file}")
+
+            # Always keep a copy of the import code next to the output
+            if not lower.endswith(".txt"):
+                pob_file = output_file.rsplit(".", 1)[0] + ".txt" if "." in output_file else output_file + ".txt"
+                with open(pob_file, "w") as f:
+                    f.write(optimized_code)
+                output.info(f"PoB code also saved to: {pob_file}")
 
     output.success(f"Optimization completed in {elapsed:.1f}s")

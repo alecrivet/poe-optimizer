@@ -8,9 +8,12 @@ This tool takes a Path of Building export code, analyzes the passive tree, and u
 
 **Key Features:**
 - Uses PoB's real calculation engine (not approximations)
-- Two optimization algorithms: Greedy (fast) and Genetic (thorough)
-- Parallel evaluation with batch processing for faster optimization
-- Progress bars for real-time optimization visibility
+- Fast: the build is loaded into persistent PoB workers once, then every
+  candidate is scored with PoB's own incremental calculator (~0.2 s each,
+  in parallel). A 10-iteration greedy run takes about a minute.
+- Two optimization algorithms: Greedy (default) and Genetic (experimental)
+- Point-neutral swaps (remove one node, add another) so builds at max level
+  still improve
 - Supports timeless jewels, cluster jewels, and unique jewels
 - Protects jewel-modified nodes from optimizer changes
 - CLI tool for scripting and automation
@@ -130,11 +133,17 @@ poe-optimizer encode optimized.xml
 ```bash
 poe-optimizer optimize build.xml \
   --objective dps \           # dps, life, ehp, balanced
-  --generations 50 \          # Evolution generations
-  --population 30 \           # Population size
+  --algorithm greedy \        # greedy (default) or genetic
+  --iterations 50 \           # Greedy: max improvements to apply
+  --workers 8 \               # PoB worker processes (default: CPU count)
+  --allow-point-change \      # Let the point count grow (default: no)
+  --max-point-change 5 \      # Max points added/removed vs original
   --output optimized.xml \    # Output file
   --json                      # JSON output for scripting
 ```
+
+`--no-incremental` falls back to reloading the build XML for every candidate
+(slow; kept for comparison and as a fallback if the worker pool cannot start).
 
 ## How It Works
 
@@ -145,24 +154,32 @@ poe-optimizer optimize build.xml \
 5. **Evaluate Fitness:** Call PoB's Lua engine for accurate stat calculations
 6. **Output Result:** Generate optimized PoB code
 
+### How candidates are evaluated
+
+The build is loaded once into a pool of persistent `luajit` processes running
+PoB's headless engine. Each candidate tree change is then sent as a small
+delta (`add` / `remove` / `masteries`) and scored with the same incremental
+calculator PoB uses for its node hover tooltips, without reparsing the build.
+Absolute numbers are extrapolated from the XML's own PlayerStats using the
+Lua ratio, so results are on the PoB desktop scale. See
+`docs/ARCHITECTURE.md` and `docs/PERFORMANCE.md`.
+
 ### Optimization Algorithms
 
-**Greedy Optimizer (recommended)**
-- Iterative local search that evaluates all candidate modifications each round
-- Analyzes each node's marginal impact and picks the best improvement
-- Supports parallel evaluation across multiple CPU cores
-- Batch evaluation mode with persistent worker pool for ~2x speedup
-- Progress bars show real-time optimization status
-- Best for reliable, incremental improvements
-- Typical runtime: 5-10 minutes (with batch evaluation)
+**Greedy Optimizer (default)**
+- Each iteration evaluates every mastery alternative, every removable node,
+  every adjacent addition, and remove+add swaps built from the best singles
+- Picks the best marginal improvement, commits it, repeats until nothing
+  clears `min_improvement`
+- Respects the level-based point budget and jewel/cluster protection
+- Typical runtime: ~5 s per iteration on 8 workers, about 1 minute for 10
+  iterations
 
 **Genetic Algorithm (experimental)**
 - Population-based evolution (configurable population/generations)
-- Crossover and mutation operators respect tree connectivity
-- Explores broader search space, may find non-obvious combinations
-- Supports parallel/batch evaluation like greedy optimizer
-- Better for exploring alternative solutions
-- Typical runtime: 2-5 minutes (faster but may find different local optima)
+- Individuals are scored on the same worker pool by node list
+- Explores a broader search space; current mutation operators are crude
+  (see `docs/BACKLOG.md`)
 
 ## Jewel Support
 
@@ -193,14 +210,14 @@ poe-optimizer jewels build.xml --json
 The `scripts/` directory contains useful utilities:
 
 ```bash
+# Reproduce the evaluation timings in docs/PERFORMANCE.md
+venv/bin/python3 scripts/benchmark_evaluation.py --workers 8
+
 # Compare greedy vs genetic optimizer performance
-python scripts/compare_optimizers.py
+venv/bin/python3 scripts/compare_optimizers.py
 
 # Quick genetic optimizer test
-python scripts/test_genetic_optimizer.py
-
-# Benchmark batch evaluation
-python scripts/benchmark_batch_evaluation.py
+venv/bin/python3 scripts/test_genetic_optimizer.py
 ```
 
 All optimization scripts automatically save results to the `output/` directory with timestamps, including both XML files and PoB import codes.
@@ -233,15 +250,18 @@ poe-optimizer/
 
 ## Development
 
+Start with `CLAUDE.md` (project guide for agents and humans) and
+`docs/DEVELOPMENT.md` (workflow). Index of all docs: `docs/README.md`.
+
 ```bash
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run tests
-pytest tests/ -v
+# Run tests (integration tests need luajit + the submodule; skipped otherwise)
+venv/bin/pytest tests/ -q
 
-# Run specific test
-pytest tests/test_pob_caller.py -v
+# Hot-path tests only
+venv/bin/pytest tests/test_worker_pool.py tests/test_incremental_optimizer.py -q
 
 # Format code
 black src/ tests/
@@ -257,6 +277,38 @@ isort src/ tests/
 - **Jewel Contents:** Can swap jewel locations but doesn't optimize jewel contents or timeless seeds
 
 ## Changelog
+
+### v0.10.0
+- **PoB submodule updated to v2.67.2** (from v2.60.0): 3.28 and 3.29 trees,
+  gems and uniques. `SET` now works with PoB's new `ImportFromNodeList`
+  signature (and still with the old one). Added a 3.29 copy of the fixture
+  build and a regression test that loads it.
+- **New timeless jewels recognised**: Heroic Tragedy (3.28, Kalguur) with its
+  three keystones and LUT data, and the five 3.29 Abyss timeless jewels
+  (Festering Vengeance, Extinguishing Grasp, Baleful Dominion, Destructive
+  Aspiration, Reclaimed Malevolence). They are classified as timeless, their
+  sockets are protected, and PoB applies their transformations.
+- **Incremental evaluation.** New `LOAD` / `SET` / `DELTA` session protocol
+  in `evaluator_batch.lua`: the build is loaded into each PoB worker once and
+  candidates are scored with PoB's node-hover calculator (~0.2 s vs 3-5 s per
+  candidate). Greedy runs went from tens of minutes to about a minute.
+- **Worker pool rewrite.** True N-way parallelism (the old pool serialised
+  every evaluation behind one lock) and a raw-pipe reader that fixes lost /
+  misattributed responses caused by `select()` on a buffered pipe.
+- **Greedy optimizer.** Evaluates all removals, all adjacent additions, all
+  mastery alternatives and point-neutral remove+add swaps each iteration;
+  improvements are measured against the current tree, not the original.
+- **Genetic optimizer** scores individuals on the same worker session.
+- **Constraints.** Passive point counting now excludes class-start and
+  ascendancy nodes (previously every candidate on a max-level build was
+  rejected as over budget); level budget is `level + 23`.
+- CLI: `--workers`, `--incremental/--no-incremental`; workers are shut down
+  on exit. `--max-point-change` is now passed through to the optimizers.
+- Docs restructured: `CLAUDE.md`, `docs/ARCHITECTURE.md`, rewritten
+  `DEVELOPMENT.md` / `PERFORMANCE.md` / `BACKLOG.md`, plan template in
+  `docs/plans/`, completed plans moved to `docs/archive/`.
+- 21 new tests (worker protocol, incremental calculator, candidate
+  generation, point counting).
 
 ### v0.9.2
 - Replace silent `or "3_27"` fallbacks with `get_latest_tree_version_or_raise()` across 6 call sites
@@ -303,9 +355,13 @@ isort src/ tests/
 - [x] **v0.7** - Parallel/batch evaluation, progress bars, performance optimization
 - [x] **v0.8** - Mastery optimization, jewel socket swapping, cluster notable reallocation
 - [x] **v0.9** - GGG account import, dynamic tree version detection
+- [x] **v0.10** - Incremental PoB evaluation, real parallelism, swap moves
+- [ ] **v0.11** - Life/EHP floors in the greedy loop, candidate caching, timeless LUT fix
 - [ ] **v1.0** - Item optimization, gem links, production ready
 
 ## Contributing
+
+See `docs/CONTRIBUTING.md` and `docs/DEVELOPMENT.md`.
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/improvement`)
@@ -315,7 +371,7 @@ isort src/ tests/
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License.
 
 This project uses [Path of Building Community](https://github.com/PathOfBuildingCommunity/PathOfBuilding) as a submodule (MIT License).
 

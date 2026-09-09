@@ -1,5 +1,22 @@
 # Troubleshooting Guide
 
+> **Status (v0.10):** The "Worker pool" section below is current. Later sections date from the Python-API era (v0.4-v0.5) and may reference removed options.
+
+## Worker pool (v0.10)
+
+**`Failed to start any PoB workers`** - `luajit` is not on PATH or the submodule is missing. Run `poe-optimizer setup`; on macOS `brew install luajit`; `git submodule update --init --recursive`.
+
+**`Incremental evaluation unavailable ... falling back`** - the session `LOAD` failed. Run `venv/bin/python3 scripts/benchmark_evaluation.py --workers 1` to see the Lua error; PoB console output is on the worker's stderr (set `stderr=None` in `PoBWorker._spawn` temporarily to see it).
+
+**Every candidate is filtered out / "No valid candidates"** - the point budget. Check the log line `Constraints: ConstraintSet(Points: a-b)` against the `points used` printed by the benchmark; use `--max-points N` or `--disable-constraints`.
+
+**Slow (minutes per iteration)** - you are on the legacy path (`--no-incremental`, or the fallback above). Confirm the log says `Session ready on N workers`.
+
+**Timeouts under load** - workers are CPU-bound; do not run more workers than physical cores (`--workers`).
+
+**`Missing LUT: <jewel>` on stderr** - PoB cannot find the timeless jewel lookup table in headless mode; notable transformations for that jewel are not applied. Tracked in `BACKLOG.md`.
+
+
 This guide helps you diagnose and fix common issues with the PoE Build Optimizer.
 
 ## Table of Contents

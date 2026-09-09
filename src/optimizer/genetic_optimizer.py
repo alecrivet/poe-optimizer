@@ -49,6 +49,7 @@ from ..pob.codec import encode_pob_code, decode_pob_code
 from ..pob.modifier import modify_passive_tree_nodes, get_passive_tree_summary
 from ..pob.relative_calculator import RelativeCalculator, RelativeEvaluation
 from ..pob.batch_calculator import BatchCalculator
+from ..pob.incremental_calculator import IncrementalCalculator, IncrementalCalculatorError
 from ..pob.mastery_optimizer import (
     get_mastery_database,
     MasteryOptimizer,
@@ -193,6 +194,8 @@ class Population:
         use_batch_evaluation: bool = False,
         show_progress: bool = True,
         constraints: Optional[ConstraintSet] = None,
+        incremental_calculator: Optional[IncrementalCalculator] = None,
+        trees_only: bool = True,
     ):
         """
         Initialize population.
@@ -206,9 +209,17 @@ class Population:
             use_batch_evaluation: If True, use batch calculator
             show_progress: If True, show progress bars during evaluation
             constraints: Optional constraint set for fitness penalty
+            incremental_calculator: Session calculator with the baseline build
+                loaded; individuals are scored by sending only their node
+                list (fast) instead of reloading the whole build.
+            trees_only: True when individuals differ from the baseline only in
+                the passive tree. If jewels/items can differ, full reloads are
+                used through the same worker pool.
         """
         self.individuals = individuals
         self.baseline_xml = baseline_xml
+        self.incremental_calculator = incremental_calculator
+        self.trees_only = trees_only
         self.calculator = calculator
         self.batch_calculator = batch_calculator
         self.max_workers = max_workers
@@ -244,8 +255,11 @@ class Population:
                 bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
             )
 
-        if self.use_batch_evaluation and self.batch_calculator:
-            # Batch evaluation using persistent worker pool (fastest)
+        if self.incremental_calculator is not None:
+            # Session evaluation in persistent PoB workers (fastest)
+            self._evaluate_incremental(objective, eval_pbar)
+        elif self.use_batch_evaluation and self.batch_calculator:
+            # Batch evaluation using persistent worker pool
             self._evaluate_batch(objective, eval_pbar)
         elif self.max_workers > 1:
             # Parallel evaluation using ProcessPoolExecutor
@@ -326,6 +340,33 @@ class Population:
 
                 if pbar:
                     pbar.update(1)
+
+    def _evaluate_incremental(self, objective: str, pbar=None) -> None:
+        """Evaluate all individuals through the incremental calculator session."""
+        calc = self.incremental_calculator
+        keys = [f"individual_{i}" for i in range(len(self.individuals))]
+        try:
+            if self.trees_only:
+                trees = {k: sorted(ind.get_allocated_nodes()) for k, ind in zip(keys, self.individuals)}
+                masteries = {k: ind.get_mastery_effects() for k, ind in zip(keys, self.individuals)}
+                results = calc.evaluate_trees(trees, masteries)
+            else:
+                results = calc.evaluate_xmls({k: ind.xml for k, ind in zip(keys, self.individuals)})
+        except IncrementalCalculatorError as e:
+            logger.error(f"Incremental evaluation failed: {e}, falling back to sequential")
+            self._evaluate_sequential(objective, pbar)
+            return
+
+        for key, ind in zip(keys, self.individuals):
+            res = results.get(key)
+            if res is None:
+                ind.fitness = -1000
+            else:
+                node_count = res.points_used if res.points_used is not None else ind.get_point_count()
+                ind.fitness = self._calculate_fitness(res.evaluation, objective, node_count if self.constraints else None)
+                ind.fitness_details = res.evaluation
+            if pbar:
+                pbar.update(1)
 
     def _evaluate_batch(self, objective: str, pbar=None) -> None:
         """Evaluate all individuals using batch calculator."""
@@ -424,6 +465,7 @@ class GeneticTreeOptimizer:
         show_progress: bool = True,
         tree_version: Optional[str] = None,
         constraints: Optional[ConstraintSet] = None,
+        use_incremental: bool = True,
     ):
         """
         Initialize genetic algorithm optimizer.
@@ -443,6 +485,10 @@ class GeneticTreeOptimizer:
             max_workers: Number of parallel workers (None = CPU count)
             use_batch_evaluation: If True, use persistent worker pool
             show_progress: If True, show progress bars during evolution
+            use_incremental: If True (default), load the build into persistent
+                PoB workers once and score individuals by node list only
+                (~0.5 s each, parallel) instead of reloading the whole build
+                (~3-5 s each). Falls back automatically if workers fail.
         """
         self.population_size = population_size
         self.generations = generations
@@ -456,6 +502,8 @@ class GeneticTreeOptimizer:
         self.allow_cluster_optimization = allow_cluster_optimization
         self.max_workers = max_workers if max_workers is not None else os.cpu_count()
         self.use_batch_evaluation = use_batch_evaluation
+        self.use_incremental = use_incremental
+        self.incremental_calculator: Optional[IncrementalCalculator] = None
         self.show_progress = show_progress and TQDM_AVAILABLE
         self.tree_version = tree_version
 
@@ -593,8 +641,23 @@ class GeneticTreeOptimizer:
                 logger.warning(f"Failed to extract build context: {e}")
                 self.build_context = None
 
+        # Fast path: persistent PoB workers with the build loaded once
+        if self.use_incremental:
+            try:
+                if self.incremental_calculator is None:
+                    self.incremental_calculator = IncrementalCalculator(num_workers=self.max_workers)
+                logger.info(f"Starting PoB workers ({self.max_workers} requested)...")
+                self.incremental_calculator.start()
+                self.incremental_calculator.load(build_xml)
+                logger.info(f"Session ready on {self.incremental_calculator.num_workers} workers")
+            except (IncrementalCalculatorError, RuntimeError) as e:
+                logger.warning(f"Incremental evaluation unavailable ({e}); using XML reload path")
+                if self.incremental_calculator:
+                    self.incremental_calculator.shutdown()
+                self.incremental_calculator = None
+
         # Start batch calculator if using batch evaluation
-        if self.use_batch_evaluation and self.batch_calculator:
+        if self.use_batch_evaluation and self.batch_calculator and self.incremental_calculator is None:
             logger.info("Starting worker pool...")
             num_workers = self.batch_calculator.start()
             logger.info(f"Worker pool ready ({num_workers} workers)")
@@ -789,6 +852,10 @@ class GeneticTreeOptimizer:
 
         Call this when done with optimization if using batch evaluation.
         """
+        if self.incremental_calculator:
+            logger.info("Shutting down PoB workers...")
+            self.incremental_calculator.shutdown()
+            self.incremental_calculator = None
         if self.batch_calculator:
             logger.info("Shutting down batch calculator...")
             self.batch_calculator.shutdown()
@@ -861,6 +928,9 @@ class GeneticTreeOptimizer:
             use_batch_evaluation=self.use_batch_evaluation,
             show_progress=self.show_progress,
             constraints=self.constraints,
+            incremental_calculator=self.incremental_calculator,
+            # Jewel socket mutations change items, which a tree-only SET cannot express
+            trees_only=not self.optimize_jewel_sockets,
         )
 
         # Assign IDs and evaluate

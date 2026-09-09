@@ -51,6 +51,7 @@ htmlcov/
 # Project specific
 *.xml
 !examples/**/*.xml
+!tests/fixtures/**/*.xml
 *.txt
 !requirements.txt
 !examples/**/*.txt

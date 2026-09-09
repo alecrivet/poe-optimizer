@@ -1,132 +1,99 @@
-# Feature Backlog
+# Backlog
 
-Future enhancements and features for consideration in upcoming releases.
+Open work, known issues, and open review findings. One list, kept current.
+Shipped items move to the README changelog; completed plans move to
+`docs/archive/`. Last refreshed: 2026-09-09 (v0.10.0).
 
----
+## Next up
 
-## v0.7 - Polish & Performance
+### Optimizer quality
+- [ ] **Constraint objectives in the greedy loop.** `--min-life` / `--min-ehp`
+      are parsed but not enforced during candidate selection; `dps` runs on the
+      fixture trade -9% life for +42% DPS. Filter candidates whose extrapolated
+      life/EHP fall below the floor (data is already in `DeltaEvaluation`).
+- [ ] **Candidate pruning.** Skip removals whose `removed` count exceeds the
+      point slack, and cache single-node delta results across iterations
+      (most are unchanged after a swap elsewhere). See `docs/PERFORMANCE.md`.
+- [ ] **Two-step additions.** Allow adding a notable two nodes away (PoB's
+      `node.path` already handles pathing; the cost is two points) so swaps
+      can reach notables behind a travel node.
+- [ ] **Genetic operators on node sets.** Individuals are still XML strings
+      mutated through `modify_passive_tree_nodes`; initial random variation
+      produces many -100% individuals. Operate on node sets with connectivity
+      repair instead.
+- [ ] **Multi-objective via the session.** `MultiObjectiveOptimizer` is not
+      wired to the worker pool or the CLI (`multi` algorithm uses the old
+      calculator). Finding S2-008.
 
-### High Priority
-- [ ] Comprehensive test coverage expansion
-- [ ] Performance benchmarking and optimization
-- [ ] Edge case handling and bug fixes
-- [ ] CI/CD pipeline setup
+### Engine accuracy
+- [ ] **Timeless jewel LUTs.** PoB prints `Missing LUT: Lethal Pride` (120x
+      per load, still on v2.67.2). `readLUT` returns nothing for notables whose
+      index is past `sizeNotable` in `NodeIndexMapping`; confirm whether the
+      desktop app does the same for this build before treating it as a
+      headless bug (finding S3-005).
+- [ ] **Abyss timeless jewels in `DELTA`.** Socket-keyed conquests are only
+      rebuilt on `SET`; a `DELTA` that changes Zorath's socket-to-start path is
+      approximate until committed. Fine for greedy (commits each move); worth
+      a `SET`-based re-check of the winner if this ever matters.
+- [ ] **Timeless socket recommendations** (`timeless_value.py`) do not cover
+      Abyss jewels (no radius LUT); `get_affected_nodes` returns empty for them.
+- [ ] **Mastery database gaps.** `Mastery node 19750/6968/9471 not found in
+      database` on the fixture; effect ids valid in PoB are flagged invalid.
+      Parse masteries from PoB's `tree.lua` the way PoB does instead of regex.
+- [ ] **Gem optimizer accuracy.** Headless absolute stats are off for
+      accuracy/crit-dependent gems; `FullDPS` is 0 because imported builds
+      have `includeInFullDPS="nil"`. Options: auto-flag skill groups, filter
+      accuracy/crit gems, or move gem swaps onto the session protocol
+      (`SET`-style item override). See `src/optimizer/gem_optimizer.py`.
 
-### Medium Priority
-- [ ] Shell completion (bash/zsh/fish)
-- [ ] Configuration file support (`~/.poe-optimizer/config.json`)
-- [ ] Progress bar improvements and ETA calculations
+### Tooling
+- [ ] CI: GitHub Actions running the non-PoB unit tests on push; a nightly
+      job with the submodule + luajit for the integration tests.
+- [ ] `poe-optimizer optimize --report`: write the per-iteration candidate
+      table (top N with deltas) next to the output so results can be audited.
+- [ ] Shell completion and a config file (`~/.poe-optimizer/config.json`).
 
-### Low Priority
-- [ ] Verbose logging mode with debug output
-- [ ] Build validation warnings (conflicting keystones, etc.)
+## v1.0 themes (unchanged)
 
----
+- Item upgrade suggestions and budget constraints.
+- Gem link / support selection (partially started: `gem_optimizer.py`).
+- Attribute requirement satisfaction, anointments, cluster jewel generation.
 
-## v0.8 - Advanced Features
+## Open review findings
 
-### Account Import from PoE API
-**Status:** Deferred from v0.7
-**Estimated Effort:** 8-12 hours
-**Priority:** Medium
+From the v0.9 six-session review (`docs/archive/CODE_REVIEW_FINDINGS.md`).
+Fixed since: S1-001, S1-003, S1-004, S1-005, S1-006 (worker reader rewritten
+in v0.10), S2-001, S2-002, S2-004, S2-005, S2-006, S3-001, S3-002, S3-003,
+S3-004, S3-006, S4-001, S4-003, S4-005, S5-001, S5-004, S5-005.
 
-Allow users to import builds directly from their PoE account instead of requiring PoB codes.
+| ID | Sev | Summary | Notes |
+|---|---|---|---|
+| S2-003 | Med | ~400 lines duplicated between `tree_optimizer.py` and `genetic_optimizer.py` (mastery, jewel swaps, ToH, cluster) | extract a `CandidateGenerator` shared by both |
+| S4-002 | Med | `BatchCalculator` / `RelativeCalculator` duplication | both are legacy now; consider deleting `BatchCalculator` once gem optimizer uses the session |
+| S2-008 | Med | Multi-objective optimizer not integrated | see "Next up" |
+| S5-003 | Med | Broad `except Exception: pass` in CLI | |
+| S1-002 | Med | Regex parsing of PoB `tree.lua` is fragile | ties to mastery DB gaps above |
+| S3-005 | Med | Timeless jewel data path resolution fails silently | see "Engine accuracy" |
+| S4-004 | Med | Synergy detection O(n^2) with 3n evaluations per pair | unused by the incremental path |
+| S2-007 | Med | O(n^2) Pareto dominance | only matters if S2-008 is done |
+| S1-007, S4-006, S6-003 | Low | Module-level singletons (`_tree_parser`, `_mastery_db`, `_loader_cache`) | |
+| S2-009 | Low | Optimizer files too large | do with S2-003 |
+| S2-010, S6-001, S5-006 | Low | Emojis / Unicode in output | |
+| S3-007 | Low | Cluster "Steiner tree" is a greedy heuristic | documented, no action |
+| S4-007 | Low | Hard-coded keyword dicts in `build_context.py` | |
+| S5-002 | Low | `sys.path.insert` hack in `cli/main.py` | |
+| S6-002 | Low | `tree_diff` prints unconditionally | |
 
-**Implementation:**
-- Add `src/pob/account_importer.py` module
-- HTTP client for GGG's character-window API
-- Authentication via POESESSID cookie
-- CLI command: `poe-optimizer import-account PlayerName#1234 --character "CharName"`
+## Known limitations (user-facing)
 
-**API Endpoints:**
-- `character-window/get-characters` - List account characters
-- `character-window/get-passive-skills` - Fetch passive tree
-- `character-window/get-items` - Fetch items and skills
+- Optimises an existing tree; not validated from an empty tree.
+- Items, gems, flasks and config are fixed during a run.
+- Ascendancy choices are never changed.
+- Jewel contents and timeless seeds are not optimised (socket placement is,
+  opt-in).
+- Results are PoB hover values for the headless engine; verify the final
+  build in PoB desktop.
 
-**Considerations:**
-- Requires handling private accounts (POESESSID)
-- Error handling for 401/403/404 responses
-- Rate limiting and retry logic
-- Case sensitivity quirks in GGG API
-- Multi-realm support (PC/Xbox/PS4/CN/TW)
+## Declined
 
-**Benefits:**
-- Convenient for users (no manual export)
-- Auto-refresh builds from league
-- Batch import multiple characters
-
-**Drawbacks:**
-- Fragile (API changes could break)
-- Authentication complexity
-- Additional HTTP dependency
-
-**CLI Examples:**
-```bash
-# Public account
-poe-optimizer import-account PlayerName#1234 --character "MyChar"
-
-# Private account (requires POESESSID)
-poe-optimizer import-account PlayerName#1234 \
-  --character "MyChar" \
-  --session "your-poesessid-cookie"
-
-# List characters first
-poe-optimizer list-characters PlayerName#1234
-
-# Import and optimize in one step
-poe-optimizer import-account PlayerName#1234 \
-  --character "MyChar" | poe-optimizer optimize -
-```
-
----
-
-## v1.0 - Production Ready
-
-### Item Optimization
-- [ ] Equipment upgrade suggestions
-- [ ] Rare item crafting targets
-- [ ] Unique item recommendations
-- [ ] Budget constraints
-
-### Gem Optimization
-- [ ] Gem link optimization
-- [ ] Support gem selection
-- [ ] Awakened gem upgrade paths
-- [ ] Alternative quality suggestions
-
-### Advanced Constraints
-- [ ] Attribute requirement satisfaction
-- [ ] Jewel socket allocation strategy
-- [ ] Cluster jewel generation/optimization
-- [ ] Anointment optimization
-
----
-
-## Future Considerations
-
-### Web Interface
-- [ ] Browser-based GUI alternative
-- [ ] Build sharing platform integration
-- [ ] Visual passive tree editor
-- [ ] Real-time optimization preview
-
-### Community Features
-- [ ] Build database/sharing
-- [ ] Meta build analysis
-- [ ] League starter recommendations
-- [ ] Build archetype templates
-
-### Machine Learning
-- [ ] Learn from successful builds (poe.ninja)
-- [ ] Predictive build recommendations
-- [ ] Meta-game adaptation
-
----
-
-## Declined / Won't Implement
-
-None yet.
-
----
-
-**Note:** This backlog is subject to change based on user feedback and project priorities.
+- Desktop GUI (PyQt, v0.5): shelved; `src/gui/` kept for reference only.

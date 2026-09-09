@@ -37,7 +37,7 @@ class PassiveNode:
     node_id: int
     name: str
     stats: List[str]
-    node_type: str  # 'normal', 'notable', 'keystone', 'jewel', 'ascendancy_start', 'mastery'
+    node_type: str  # 'normal', 'notable', 'keystone', 'jewel', 'ascendancy_start', 'class_start', 'mastery'
     connections: List[int]  # Adjacent node IDs
     x: float = 0.0
     y: float = 0.0
@@ -66,6 +66,27 @@ class PassiveTreeGraph:
     def add_node(self, node: PassiveNode):
         """Add a node to the graph."""
         self.nodes[node.node_id] = node
+        if node.node_type == 'class_start':
+            self.class_start_nodes[node.name] = node.node_id
+
+    def counts_as_passive_point(self, node_id: int) -> bool:
+        """
+        True if allocating this node costs a regular passive skill point.
+
+        Class start nodes are free, ascendancy nodes (including the
+        ascendancy start) use ascendancy points, and cluster jewel nodes
+        (id >= 65536) do cost points.
+        """
+        node = self.get_node(node_id)
+        if node is None:
+            return node_id >= 65536
+        if node.node_type in ('class_start', 'ascendancy_start') or node.is_ascendancy:
+            return False
+        return True
+
+    def count_passive_points(self, allocated_nodes: Set[int]) -> int:
+        """Count the regular passive points used by a set of allocated nodes."""
+        return sum(1 for n in allocated_nodes if self.counts_as_passive_point(n))
 
     def get_node(self, node_id: int) -> Optional[PassiveNode]:
         """Get a node by ID."""
@@ -489,6 +510,8 @@ class TreeParser:
             node_type = 'jewel'
         elif '["isAscendancyStart"]' in node_content and 'true' in node_content:
             node_type = 'ascendancy_start'
+        elif '["classStartIndex"]' in node_content:
+            node_type = 'class_start'
 
         # Check if ascendancy node
         if '["ascendancyName"]' in node_content:

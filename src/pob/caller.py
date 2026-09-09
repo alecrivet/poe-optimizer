@@ -125,7 +125,7 @@ class PoBCalculator:
                 f"Lua command '{self.lua_command}' timed out when checking version."
             )
 
-    def evaluate_build(self, build_xml: str, timeout: int = 30, use_xml_stats: bool = True) -> Dict:
+    def evaluate_build(self, build_xml: str, timeout: int = 120, use_xml_stats: bool = True) -> Dict:
         """
         Evaluate a PoB build and return statistics.
 
@@ -134,7 +134,9 @@ class PoBCalculator:
 
         Args:
             build_xml: PoB build XML content
-            timeout: Maximum time in seconds to wait for Lua evaluation (default: 30)
+            timeout: Maximum time in seconds to wait for Lua evaluation (default: 120).
+                A cold luajit process takes ~13 s on its own and much longer when
+                several run in parallel.
             use_xml_stats: If True, prefer pre-calculated XML stats (default: True)
 
         Returns:
@@ -170,7 +172,7 @@ class PoBCalculator:
         logger.debug("Using Lua calculation engine")
         return self._evaluate_with_lua(build_xml, timeout)
 
-    def _evaluate_with_lua(self, build_xml: str, timeout: int = 30) -> Dict:
+    def _evaluate_with_lua(self, build_xml: str, timeout: int = 120) -> Dict:
         """
         Evaluate build using PoB's Lua calculation engine.
 

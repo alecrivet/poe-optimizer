@@ -24,7 +24,8 @@
   - `caller.py` - PoBCalculator wrapper
   - `codec.py` - PoB import code encoder/decoder
   - `xml_parser.py` - Parse stats from PoB XML
-  - `*.lua` - Our Lua scripts that call PoB (kept separate from PoB's code)
+  - `worker_pool.py`, `incremental_calculator.py` - Persistent PoB workers and the session calculator
+  - `*.lua` - Our Lua scripts that call PoB (kept separate from PoB's code); `evaluator_batch.lua` is the worker
 
 **Tests:**
 - `tests/` - All test files
@@ -35,7 +36,9 @@
 - `examples/` - Example builds, XMLs, etc.
 
 **Documentation:**
-- `notes/` - Session notes, guides, etc.
+- `CLAUDE.md` - Project guide and conventions (start here)
+- `docs/` - Current docs; `docs/README.md` is the index; `docs/DEVELOPMENT.md` is the workflow
+- `notes/` - 2025 session notes and phase guides (historical)
 
 ## PathOfBuilding Integration
 
