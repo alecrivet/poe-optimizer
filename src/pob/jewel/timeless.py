@@ -2,7 +2,9 @@
 Timeless Jewel Support
 
 Timeless jewels transform passive nodes within their radius based on a seed value.
-There are 5 types, each with 3 variants:
+There were originally 5 types, each with 3 variants; 3.28 added Heroic
+Tragedy (Kalguur) and 3.29 added five Abyss timeless jewels (one per Abyss
+lord, socketed in tree sockets, no radius). Types:
 
 1. Glorious Vanity (Vaal) - Replaces passives, adds keystone
    - Variants: Doryani (Corrupted Soul), Xibaqua (Divine Flesh), Ahuana (Immortal Ambition)
@@ -60,7 +62,50 @@ TIMELESS_JEWEL_TYPES = {
         "variants": {"Asenath": 1, "Balbala": 2, "Nasima": 3},
         "keystone_pattern": r"(\d+) denoted service of (\w+)",
     },
+    # 3.28 (Mirage): Kalguur timeless jewel, radius-based like the originals
+    "Heroic Tragedy": {
+        "legion": "Kalguur",
+        "variants": {"Vorana": 1, "Uhtred": 2, "Medved": 3},
+        "keystone_pattern": r"Remembrancing (\d+) songworthy deeds by the line of (\w+)",
+    },
+    # 3.29 (Allflame): Abyss timeless jewels. Socketed in tree jewel sockets;
+    # they conquer nodes by a socket-specific lookup table rather than a
+    # radius (Zorath's affects the path from the socket to the class start).
+    # PoB applies the transformations; we only need to recognise and protect them.
+    "Festering Vengeance": {
+        "legion": "Abyssal",
+        "abyss": True,
+        "variants": {"Tecrod": 1},
+        "keystone_pattern": r"Subjugating (\d+) souls in the thrall of (\w+)",
+    },
+    "Extinguishing Grasp": {
+        "legion": "Abyssal",
+        "abyss": True,
+        "variants": {"Ulaman": 1},
+        "keystone_pattern": r"Subjugating (\d+) souls in the thrall of (\w+)",
+    },
+    "Baleful Dominion": {
+        "legion": "Abyssal",
+        "abyss": True,
+        "variants": {"Kurgal": 1},
+        "keystone_pattern": r"Subjugating (\d+) souls in the thrall of (\w+)",
+    },
+    "Destructive Aspiration": {
+        "legion": "Abyssal",
+        "abyss": True,
+        "variants": {"Amanamu": 1},
+        "keystone_pattern": r"Subjugating (\d+) souls in the thrall of (\w+)",
+    },
+    "Reclaimed Malevolence": {
+        "legion": "Abyssal",
+        "abyss": True,
+        "variants": {"Zorath": 1},
+        "keystone_pattern": r"Subjugating (\d+) souls in the thrall of (\w+)",
+    },
 }
+
+# Lines that identify a timeless-style jewel in PoB item text
+TIMELESS_MARKERS = ("Timeless Jewel", "Conquered by the")
 
 
 @dataclass
@@ -88,13 +133,20 @@ class TimelessJewel(BaseJewel):
         if self.jewel_type in TIMELESS_JEWEL_TYPES:
             self.legion = TIMELESS_JEWEL_TYPES[self.jewel_type]["legion"]
 
+    @property
+    def is_abyss(self) -> bool:
+        """True for the 3.29 Abyss timeless jewels (socket-based, no radius)."""
+        return bool(TIMELESS_JEWEL_TYPES.get(self.jewel_type, {}).get("abyss"))
+
     def get_affected_nodes(self, tree: "PassiveTreeGraph") -> Set[int]:
         """
         Return nodes within the jewel's Large radius.
 
-        Timeless jewels always have Large radius.
+        Radius timeless jewels always have Large radius. Abyss timeless jewels
+        conquer nodes by a socket-specific lookup table that PoB evaluates;
+        we cannot enumerate them here and return an empty set.
         """
-        if not self.socket_node_id or not tree:
+        if not self.socket_node_id or not tree or self.is_abyss:
             return set()
 
         # Use tree's radius calculation if available
@@ -127,6 +179,9 @@ class TimelessJewel(BaseJewel):
             ("Brutal Restraint", "Asenath"): "Dance with Death",
             ("Brutal Restraint", "Balbala"): "The Traitor",
             ("Brutal Restraint", "Nasima"): "Second Skin",
+            ("Heroic Tragedy", "Vorana"): "Black Scythe Training",
+            ("Heroic Tragedy", "Uhtred"): "Celestial Mathematics",
+            ("Heroic Tragedy", "Medved"): "The Unbreaking Circle",
         }
         return keystones.get((self.jewel_type, self.variant))
 
@@ -243,8 +298,9 @@ def parse_timeless_jewels(build_xml: str) -> List[TimelessJewel]:
                 item_id = item_elem.get("id")
                 item_text = item_elem.text or ""
 
-                # Check if it's a timeless jewel
-                if "Timeless Jewel" in item_text:
+                # Check if it's a timeless jewel (Abyss ones have no
+                # "Timeless Jewel" base line, only the "Conquered by" mod)
+                if any(marker in item_text for marker in TIMELESS_MARKERS):
                     jewel = _parse_timeless_jewel_item(item_text, item_id)
                     if jewel:
                         jewels.append(jewel)

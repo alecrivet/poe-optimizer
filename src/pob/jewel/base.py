@@ -203,8 +203,17 @@ def is_timeless_jewel(item_text: str) -> bool:
         "Elegant Hubris",
         "Militant Faith",
         "Brutal Restraint",
+        "Heroic Tragedy",          # 3.28 Kalguur
+        "Festering Vengeance",     # 3.29 Abyss (Tecrod)
+        "Extinguishing Grasp",     # 3.29 Abyss (Ulaman)
+        "Baleful Dominion",        # 3.29 Abyss (Kurgal)
+        "Destructive Aspiration",  # 3.29 Abyss (Amanamu)
+        "Reclaimed Malevolence",   # 3.29 Abyss (Zorath)
     ]
-    return any(name in item_text for name in timeless_names)
+    if any(name in item_text for name in timeless_names):
+        return True
+    # Future-proof: every timeless-style jewel carries this mod line
+    return "Conquered by the" in item_text
 
 
 def is_cluster_jewel(item_text: str) -> bool:

@@ -7,7 +7,8 @@ The data comes in two forms:
 2. LegionPassives.lua - Defines the additions and node replacements
 
 Data format (from PoB):
-- Jewel types: 1=Glorious Vanity, 2=Lethal Pride, 3=Brutal Restraint, 4=Militant Faith, 5=Elegant Hubris
+- Jewel types: 1=Glorious Vanity, 2=Lethal Pride, 3=Brutal Restraint, 4=Militant Faith, 5=Elegant Hubris, 6=Heroic Tragedy
+- Abyss timeless jewels (types 7-11) use a different, socket-keyed table and are not read here
 - Each .bin file contains a lookup table indexed by (nodeIndex, seedOffset)
 - The lookup value is an index into the LegionPassives additions/nodes list
 
@@ -37,6 +38,7 @@ JEWEL_TYPE_IDS = {
     "BrutalRestraint": 3,
     "MilitantFaith": 4,
     "ElegantHubris": 5,
+    "HeroicTragedy": 6,
 }
 
 # Seed ranges for each jewel type (from PoB Data.lua)
@@ -46,6 +48,7 @@ SEED_RANGES = {
     3: (500, 8000),         # Brutal Restraint
     4: (2000, 10000),       # Militant Faith
     5: (100, 8000),         # Elegant Hubris (divided by 20 in storage)
+    6: (100, 8000),         # Heroic Tragedy (3.28)
 }
 
 # Number of "additions" vs "replacements" in LegionPassives

@@ -286,6 +286,8 @@ Bathed in the blood of 5555 sacrificed in the name of Ahuana
         from src.pob.jewel.base import JewelCategory
 
         for jewel_type, info in TIMELESS_JEWEL_TYPES.items():
+            if info.get("abyss"):
+                continue  # Abyss timeless jewels grant no keystone
             for variant_name in info["variants"].keys():
                 jewel = TimelessJewel(
                     category=JewelCategory.TIMELESS,
@@ -319,11 +321,12 @@ class TestTimelessJewelTypes:
         for jewel_type in expected_types:
             assert jewel_type in TIMELESS_JEWEL_TYPES
 
-    def test_each_type_has_3_variants(self):
-        """Test that each type has exactly 3 variants"""
+    def test_each_type_has_expected_variants(self):
+        """Radius timeless jewels have 3 variants; Abyss ones have exactly 1."""
         for jewel_type, info in TIMELESS_JEWEL_TYPES.items():
-            assert len(info["variants"]) == 3, \
-                f"{jewel_type} should have 3 variants, has {len(info['variants'])}"
+            expected = 1 if info.get("abyss") else 3
+            assert len(info["variants"]) == expected, \
+                f"{jewel_type} should have {expected} variants, has {len(info['variants'])}"
 
     def test_variant_ids_are_unique(self):
         """Test that variant IDs are unique within each type"""
@@ -348,3 +351,84 @@ class TestTimelessJewelTypes:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestNewTimelessJewels:
+    """3.28 Heroic Tragedy and 3.29 Abyss timeless jewels (PoB v2.67.2)."""
+
+    def test_parse_heroic_tragedy(self):
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <PathOfBuilding>
+            <Items>
+                <Item id="1">Viridian Jewel
+Heroic Tragedy
+Timeless Jewel
+Remembrancing 4321 songworthy deeds by the line of Uhtred
+Passives in radius are Conquered by the Kalguur
+Historic
+</Item>
+            </Items>
+            <Sockets>
+                <Socket nodeId="26725" itemId="1"/>
+            </Sockets>
+        </PathOfBuilding>
+        """
+        jewels = parse_timeless_jewels(xml)
+        assert len(jewels) == 1
+        j = jewels[0]
+        assert j.jewel_type == "Heroic Tragedy"
+        assert j.seed == 4321 and j.variant == "Uhtred" and j.variant_id == 2
+        assert j.legion == "Kalguur"
+        assert j.keystone_name == "Celestial Mathematics"
+        assert not j.is_abyss
+        assert j.socket_node_id == 26725
+
+    def test_parse_abyss_timeless_jewel_without_timeless_marker(self):
+        """Abyss timeless jewels have an eye-jewel base and no 'Timeless Jewel' line."""
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <PathOfBuilding>
+            <Items>
+                <Item id="7">Reclaimed Malevolence
+Assembled Eye Jewel
+Subjugating 777 souls in the thrall of Zorath
+Passives affected are Conquered by the Abyssal
+Historic
+</Item>
+            </Items>
+            <Sockets>
+                <Socket nodeId="6910" itemId="7"/>
+            </Sockets>
+        </PathOfBuilding>
+        """
+        jewels = parse_timeless_jewels(xml)
+        assert len(jewels) == 1
+        j = jewels[0]
+        assert j.jewel_type == "Reclaimed Malevolence"
+        assert j.seed == 777 and j.variant == "Zorath"
+        assert j.legion == "Abyssal"
+        assert j.is_abyss
+        assert j.socket_node_id == 6910
+        assert j.keystone_name is None
+
+    def test_registry_protects_abyss_socket_and_does_not_double_count(self):
+        from src.pob.jewel.registry import JewelRegistry
+        from src.pob.jewel.base import is_timeless_jewel
+
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <PathOfBuilding>
+            <Items>
+                <Item id="7">Baleful Dominion
+Hypnotic Eye Jewel
+Subjugating 500 souls in the thrall of Kurgal
+Passives affected are Conquered by the Abyssal
+Historic
+</Item>
+            </Items>
+            <Tree><Spec nodes="6910,1,2"><Sockets><Socket nodeId="6910" itemId="7"/></Sockets></Spec></Tree>
+        </PathOfBuilding>
+        """
+        assert is_timeless_jewel("Baleful Dominion\nHypnotic Eye Jewel\nPassives affected are Conquered by the Abyssal")
+        registry = JewelRegistry.from_build_xml(xml)
+        assert len(registry.timeless_jewels) == 1
+        assert len(registry.unique_jewels) == 0
+        assert 6910 in registry.get_protected_nodes()
