@@ -319,58 +319,61 @@ async function drawTree(r) {
   catch (e) { wrap.innerHTML = `<span class="note" style="position:absolute;left:22px;bottom:14px">Tree drawing unavailable: ${esc(e.message)}</span>`; return; }
 
   const byId = new Map(tree.nodes.map((n) => [n.i, n]));
-  const orig = new Set(r.original_nodes);
-  const fin = new Set(r.final_nodes);
+  // Ascendancy nodes live in their own cluster far from the main tree and
+  // never change; leave them out of the drawing entirely.
+  const main = (id) => { const n = byId.get(id); return n && !n.a && n.t !== "ascendancy_start" ? n : null; };
+  const orig = new Set(r.original_nodes.filter(main));
+  const fin = new Set(r.final_nodes.filter(main));
   const removed = new Set([...orig].filter((n) => !fin.has(n)));
   const added = new Set([...fin].filter((n) => !orig.has(n)));
   const kept = new Set([...fin].filter((n) => orig.has(n)));
-  const shown = [...orig, ...fin].filter((n) => byId.has(n));
+  const shown = [...new Set([...orig, ...fin])];
   if (!shown.length) { wrap.innerHTML = ""; return; }
 
-  const pad = 900;
   const xs = shown.map((n) => byId.get(n).x), ys = shown.map((n) => byId.get(n).y);
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 3000);
+  const pad = span * 0.08;
   const box = { x: Math.min(...xs) - pad, y: Math.min(...ys) - pad };
   box.w = Math.max(...xs) + pad - box.x; box.h = Math.max(...ys) + pad - box.y;
   const inBox = (n) => n && n.x >= box.x && n.x <= box.x + box.w && n.y >= box.y && n.y <= box.y + box.h;
+  // Sizes relative to the drawn area so a small build isn't dwarfed and a
+  // sprawling one isn't a blob (u ~ 1% of the wider dimension).
+  const u = Math.max(box.w, box.h) / 100;
+  const radius = (n) => u * (n.t === "keystone" ? 0.95 : (n.t === "notable" || n.t === "jewel") ? 0.75 : n.t === "mastery" ? 0.6 : 0.48);
+  const bgRadius = (n) => u * (n.t === "notable" ? 0.5 : 0.34);
+  const line = (cls, na, nb, w) => `<line class="tree-edge ${cls}" x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}" style="stroke-width:${w.toFixed(0)}"/>`;
 
   const parts = [];
   parts.push(`<svg viewBox="${box.x.toFixed(0)} ${box.y.toFixed(0)} ${box.w.toFixed(0)} ${box.h.toFixed(0)}" xmlns="http://www.w3.org/2000/svg" role="img">`);
-  parts.push('<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="90" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>');
+  parts.push(`<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="${(u * 0.8).toFixed(0)}" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`);
 
-  // background edges
+  // background edges (main tree only)
   for (const [a, b] of tree.edges) {
     const na = byId.get(a), nb = byId.get(b);
-    if (!inBox(na) || !inBox(nb)) continue;
-    if (na.a || nb.a) continue;
-    parts.push(`<line class="tree-edge" x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}"/>`);
+    if (!inBox(na) || !inBox(nb) || na.a || nb.a) continue;
+    parts.push(line("", na, nb, u * 0.16));
   }
   // removed path edges, then kept/added path edges on top
   for (const [a, b] of tree.edges) {
-    const na = byId.get(a), nb = byId.get(b);
-    if (!na || !nb) continue;
-    const inOrig = orig.has(a) && orig.has(b), inFin = fin.has(a) && fin.has(b);
-    if (inOrig && !inFin) parts.push(`<line class="tree-edge removed" x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}"/>`);
+    if (orig.has(a) && orig.has(b) && !(fin.has(a) && fin.has(b))) parts.push(line("removed", byId.get(a), byId.get(b), u * 0.24));
   }
   for (const [a, b] of tree.edges) {
-    const na = byId.get(a), nb = byId.get(b);
-    if (!na || !nb) continue;
-    if (fin.has(a) && fin.has(b)) parts.push(`<line class="tree-edge kept" x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}"/>`);
+    if (fin.has(a) && fin.has(b)) parts.push(line("kept", byId.get(a), byId.get(b), u * 0.3));
   }
   // background nodes
-  const radius = (n) => n.t === "keystone" ? 105 : (n.t === "notable" || n.t === "jewel") ? 85 : n.t === "mastery" ? 70 : 55;
   for (const n of tree.nodes) {
-    if (!inBox(n) || orig.has(n.i) || fin.has(n.i) || n.t === "mastery" || n.t === "class_start") continue;
-    parts.push(`<circle class="tree-node${n.a ? " asc" : ""}" cx="${n.x}" cy="${n.y}" r="${n.t === "notable" ? 60 : 40}"/>`);
+    if (!inBox(n) || n.a || orig.has(n.i) || fin.has(n.i) || n.t === "mastery" || n.t === "class_start" || n.t === "ascendancy_start") continue;
+    parts.push(`<circle class="tree-node" cx="${n.x}" cy="${n.y}" r="${bgRadius(n).toFixed(0)}" style="stroke-width:${(u * 0.09).toFixed(0)}"/>`);
   }
   const labels = [];
   const drawSet = (set, cls) => {
     for (const id of set) {
       const n = byId.get(id);
-      if (!n || n.t === "class_start" || n.t === "ascendancy_start") continue;
-      parts.push(`<circle class="tree-node ${cls}" cx="${n.x}" cy="${n.y}" r="${radius(n)}"/>`);
+      if (!n || n.t === "class_start") continue;
+      parts.push(`<circle class="tree-node ${cls}" cx="${n.x}" cy="${n.y}" r="${radius(n).toFixed(0)}" style="stroke-width:${(u * 0.13).toFixed(0)}"/>`);
       if ((cls === "added" || cls === "removed") && (n.t === "notable" || n.t === "keystone" || n.t === "mastery")) {
-        const dy = cls === "added" ? -140 : 230;
-        labels.push(`<text class="tree-label ${cls}" x="${n.x}" y="${n.y + dy}">${esc(n.n)}</text>`);
+        const dy = cls === "added" ? -u * 1.3 : u * 2.1;
+        labels.push(`<text class="tree-label ${cls}" x="${n.x}" y="${(n.y + dy).toFixed(0)}" style="font-size:${(u * 1.3).toFixed(0)}px;letter-spacing:${(u * 0.07).toFixed(0)}px">${esc(n.n)}</text>`);
       }
     }
   };

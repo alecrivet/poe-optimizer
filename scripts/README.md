@@ -5,6 +5,7 @@ Utility scripts for development, debugging, and analysis.
 ## Top-level scripts
 
 - **benchmark_evaluation.py** - Reproduces the timings in `docs/PERFORMANCE.md` (worker start, full reload, `LOAD`/`SET`/`DELTA`, pool throughput). Run this before and after touching the evaluation path.
+- **ui_walkthrough.py** - Drives the web UI (`poe-optimizer web --no-browser`) through a full run in headless Chromium and saves screenshots; prints console errors and checks phone width. Needs `pip install playwright && playwright install chromium`.
 - **compare_optimizers.py** - Runs greedy and genetic on a build and saves both results to `output/`.
 - **test_genetic_optimizer.py** - Quick genetic optimizer smoke run.
 - **decompress_timeless_data.py** - Unpacks PoB's timeless jewel LUT data.

@@ -307,7 +307,8 @@ isort src/ tests/
   `cancelled`, and per-change node lists.
 - Tree data export (`src/web/tree_data.py`): 2,994 drawable nodes with
   positions, edges, types and class starts for 3.29, ~70 KB gzipped.
-- New dependencies: fastapi, uvicorn, requests (runtime); httpx (tests).
+- New dependencies: fastapi, uvicorn, requests (runtime); httpx, playwright
+  (dev). `scripts/ui_walkthrough.py` screenshots the UI in headless Chromium.
 
 ### v0.10.0
 - **PoB submodule updated to v2.67.2** (from v2.60.0): 3.28 and 3.29 trees,

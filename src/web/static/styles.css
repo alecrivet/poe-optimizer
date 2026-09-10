@@ -18,6 +18,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { color-scheme: dark; }
 body {
   margin: 0;
@@ -146,16 +147,15 @@ ol.changes .arrow { color: var(--ash); font-style: italic; }
 ol.changes .pct { font-family: var(--mono); color: var(--ember); }
 
 /* Tree SVG classes */
-.tree-edge { stroke: #232a34; stroke-width: 18; }
-.tree-edge.kept { stroke: var(--ember); stroke-width: 34; }
-.tree-edge.removed { stroke: var(--blood); stroke-width: 26; stroke-dasharray: 60 40; }
-.tree-node { fill: var(--stone); stroke: var(--line); stroke-width: 10; }
-.tree-node.asc { opacity: .35; }
-.tree-node.kept { fill: #3a2a12; stroke: var(--ember); stroke-width: 14; }
-.tree-node.removed { fill: #1a0d0d; stroke: var(--blood); stroke-width: 14; stroke-dasharray: 40 30; }
-.tree-node.added { fill: var(--ember); stroke: var(--ember-hi); stroke-width: 14; filter: url(#glow); }
-.tree-label { font-family: var(--disp); font-size: 150px; fill: var(--ember-hi); letter-spacing: 8px; text-anchor: middle; pointer-events: none; }
-.tree-label.removed { fill: var(--blood); font-size: 130px; }
+.tree-edge { stroke: #232a34; stroke-linecap: round; }
+.tree-edge.kept { stroke: var(--ember); }
+.tree-edge.removed { stroke: var(--blood); stroke-dasharray: 3% 2%; }
+.tree-node { fill: var(--stone); stroke: var(--line); }
+.tree-node.kept { fill: #3a2a12; stroke: var(--ember); }
+.tree-node.removed { fill: #1a0d0d; stroke: var(--blood); stroke-dasharray: 2% 1.5%; }
+.tree-node.added { fill: var(--ember); stroke: var(--ember-hi); filter: url(#glow); }
+.tree-label { font-family: var(--disp); fill: var(--ember-hi); text-anchor: middle; pointer-events: none; paint-order: stroke; stroke: #0e1116; stroke-width: .35em; }
+.tree-label.removed { fill: #e07070; }
 
 @media (max-width: 760px) {
   .step { grid-template-columns: 1fr; gap: 8px; }
