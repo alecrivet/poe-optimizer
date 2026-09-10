@@ -441,3 +441,48 @@ class TestItemConversion:
 
         item = root.find("Items/Item")
         assert "Corrupted" in item.text
+
+
+class TestJewelSockets:
+    """Tree jewels and abyss jewels must end up socketed (they were dropped before v0.11.2)."""
+
+    def _character(self):
+        from src.ggg.models import Character
+        return Character(name="T", league="Allflame", class_id=6, class_name="Shadow",
+                         ascendancy_class=3, ascendancy_name="Trickster", level=97, experience=0)
+
+    def test_tree_jewels_are_socketed_by_slot_index(self):
+        from src.ggg.converter import GGGToPoB, ConversionOptions
+        from src.ggg.models import PassiveTree, CharacterItems, Item
+        from src.pob.tree_parser import load_jewel_slots
+        import re
+
+        passives = PassiveTree.from_dict({
+            "hashes": [1, 2], "hashes_ex": [65536, 65537], "mastery_effects": {},
+            "jewel_data": {},
+            "items": [
+                {"id": "j1", "name": "Lethal Pride", "typeLine": "Timeless Jewel", "frameType": 3, "ilvl": 80,
+                 "inventoryId": "PassiveJewels", "x": 0,
+                 "explicitMods": ["Commanded leadership over 12000 warriors under Akoya", "Passives in radius are Conquered by the Karui"]},
+                {"id": "j2", "name": "", "typeLine": "Crimson Jewel", "frameType": 2, "ilvl": 70,
+                 "inventoryId": "PassiveJewels", "x": 3, "explicitMods": ["+7% to maximum Life"]},
+            ],
+        })
+        items = CharacterItems(items=[Item.from_dict({"id": "b", "name": "", "typeLine": "Stygian Vise", "frameType": 2,
+                                                       "ilvl": 80, "inventoryId": "Belt",
+                                                       "socketedItems": [{"id": "a1", "name": "Foul Gaze", "typeLine": "Murderous Eye Jewel",
+                                                                          "frameType": 2, "ilvl": 80, "explicitMods": ["+30 to maximum Energy Shield"]}]})],
+                               character={})
+        xml = GGGToPoB(ConversionOptions(apply_config_defaults=False, tree_version="3_29")).convert(self._character(), items=items, passives=passives)
+        slots = load_jewel_slots("3_29")
+
+        node_to_item = {}
+        for m in re.finditer(r'<Socket ([^>]*)/>', xml):
+            attrs = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
+            node_to_item[int(attrs["nodeId"])] = int(attrs["itemId"])
+        assert slots[0] in node_to_item and slots[3] in node_to_item
+        assert 'clusterHashFormatVersion="2"' in xml
+        assert "Lethal Pride" in xml and "Commanded leadership over 12000" in xml
+        # Abyss jewel goes into the belt's abyssal socket, and is not a gem
+        assert 'name="Belt Abyssal Socket 1"' in xml and "Foul Gaze" in xml
+        assert 'nameSpec="Murderous Eye Jewel"' not in xml

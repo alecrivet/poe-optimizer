@@ -170,3 +170,25 @@ class TestPassivePointCounting:
         cs = auto_constraints_from_xml(xml)
         assert cs is not None
         assert cs.point_budget.validate(xml), cs.point_budget.get_violation_message(xml)
+
+
+class TestUnspentPoints:
+    def test_floor_never_above_points_used(self):
+        """Level 92 build with only 108 points: floor must drop below 108, not sit at 110."""
+        from pathlib import Path
+        import re
+        xml = (Path(__file__).parent / "fixtures" / "builds" / "cyclone_slayer.xml").read_text()
+        # Pretend the character is level 99 (max 122, level floor 117) while it has 119 points -> fine
+        cs = auto_constraints_from_xml(re.sub(r'level="\d+"', 'level="99"', xml, 1))
+        assert cs.point_budget.min_points == 117
+        # Level 100 (floor 118) with 119 points -> fine; now drop nodes so it uses fewer
+        few = re.sub(r'level="\d+"', 'level="100"', xml, 1)
+        cs = auto_constraints_from_xml(few)
+        assert cs.point_budget.min_points <= 119
+        # Remove 15 allocated nodes from the spec to simulate unspent points
+        m = re.search(r'nodes="([^"]+)"', few)
+        ids = m.group(1).split(",")
+        few2 = few.replace(m.group(1), ",".join(ids[:-15]), 1)
+        cs = auto_constraints_from_xml(few2)
+        assert cs.point_budget.min_points < 119 - 15 + 1
+        assert cs.point_budget.validate(few2)

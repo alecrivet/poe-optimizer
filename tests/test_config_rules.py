@@ -76,6 +76,8 @@ class TestRules:
         labels = {a.label for a in assumptions}
         assert "Pinnacle boss" in labels and "5 flasks active" in labels
         assert '<Input name="enemyIsBoss" string="Pinnacle"' in xml
+        assert '<Input name="DisableEHPGainOnBlock" boolean="true"' in xml
+        assert '<Input name="BrandsAttachedToEnemy" number="1"' in xml
         assert '<Input name="channellingCycloneCheck" boolean="true"' in xml
         assert xml.count('active="true"') == 5
         # Existing inputs are preserved, not duplicated

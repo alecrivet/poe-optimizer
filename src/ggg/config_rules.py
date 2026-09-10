@@ -57,7 +57,7 @@ class Rule:
 RULES: List[Rule] = [
     # -- Charges ------------------------------------------------------------
     Rule("useFrenzyCharges", "Frenzy charges up", [
-        r"terminus est", r"^frenzy$", r"charged traps( support)?$", r"charged mines( support)?$", r"master sapper",
+        r"terminus est", r"^frenzy( of \w+)?$", r"charged traps( support)?$", r"charged mines( support)?$", r"master sapper",
         r"tinkerskin", r"precursor'?s emblem", r"oro'?s sacrifice", r"the red trail", r"farrul'?s fur",
         r"disciple of the slaughter", r"frenzy charge on (hit|crit|block|melee|mana)", r"frenzy charge(s)? (on|when) ",
         r"gain (a |\d+ )?frenzy charge(s)? (on|when|every)", r"avidity", r"usurper'?s penance",
@@ -117,6 +117,9 @@ RULES: List[Rule] = [
     Rule("conditionFocused", "Focused", [r"while focused"]),
     Rule("conditionHaveManaStorm", "Manastorm buff", [r"manastorm"]),
     Rule("conditionOnConsecratedGround", "On consecrated ground", [
+        r"^sanctuary$", r"ascendancy:inquisitor", r"bottled faith", r"gifts from above", r"sulphur flask", r"creates? consecrated ground",
+    ]),
+    Rule("conditionEnemyOnConsecratedGround", "Enemy on consecrated ground", [
         r"^sanctuary$", r"ascendancy:inquisitor", r"bottled faith", r"gifts from above", r"sulphur flask", r"creates? consecrated ground",
     ]),
     Rule("conditionOnFungalGround", "On fungal ground", [r"sporeguard", r"fungal ground"]),
@@ -353,6 +356,10 @@ def apply_default_config(
 
     add_input("enemyIsBoss", enemy)
     assumptions.append(Assumption("enemy", {"Pinnacle": "Pinnacle boss", "Boss": "Map boss", "Uber": "Uber boss", "None": "No boss"}.get(enemy, enemy), "poe.ninja global rule", enemy))
+    # poe.ninja's other globals (always on, not shown as toggles)
+    add_input("BrandsAttachedToEnemy", 1)
+    add_input("DisableEHPGainOnBlock", True)
+    add_input("multiplierNearbyRareOrUniqueEnemies", 1)
 
     for a in evaluate_rules(xml, tree_version):
         add_input(a.var, a.value)

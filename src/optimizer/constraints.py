@@ -403,7 +403,19 @@ def auto_constraints_from_xml(xml: str) -> Optional[ConstraintSet]:
         logger.warning(f"Invalid character level: {level}")
         return None
 
-    logger.info(f"Auto-detected character level {level}, max points = {level + 23}")
-    return ConstraintSet(
-        point_budget=PointBudgetConstraint.from_level(level, min_offset=-5)
-    )
+    budget = PointBudgetConstraint.from_level(level, min_offset=-5)
+
+    # A character with unspent points (or an import missing a few nodes)
+    # sits below the level-based minimum; never set a floor above what the
+    # build actually has, or every candidate is rejected before scoring.
+    try:
+        used = count_passive_points_in_xml(xml)
+    except Exception:
+        used = None
+    if used and budget.min_points is not None and used < budget.min_points:
+        floor = max(0, used - 5)
+        logger.info(f"Build uses {used} points, below the level minimum {budget.min_points}; lowering floor to {floor}")
+        budget.min_points = floor
+
+    logger.info(f"Auto-detected character level {level}, points {budget.min_points}-{budget.max_points}")
+    return ConstraintSet(point_budget=budget)

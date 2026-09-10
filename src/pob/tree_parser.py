@@ -599,3 +599,24 @@ def load_passive_tree(tree_version: Optional[str] = None) -> PassiveTreeGraph:
     """
     parser = get_tree_parser()
     return parser.load_tree(tree_version)
+
+
+_jewel_slots_cache: Dict[str, List[int]] = {}
+
+
+def load_jewel_slots(tree_version: Optional[str] = None, pob_path: str = "./PathOfBuilding") -> List[int]:
+    """
+    PoB's ``tree.jewelSlots``: the tree's jewel socket node ids in the order
+    GGG's character API indexes them (a jewel with ``x = i`` sits in
+    ``jewelSlots[i]``). Parsed from ``TreeData/<version>/tree.lua``.
+    """
+    if tree_version is None:
+        tree_version = get_latest_tree_version(pob_path)
+    if tree_version in _jewel_slots_cache:
+        return _jewel_slots_cache[tree_version]
+    tree_file = Path(pob_path) / "src" / "TreeData" / tree_version / "tree.lua"
+    text = tree_file.read_text(encoding="utf-8", errors="ignore")
+    m = re.search(r'\["jewelSlots"\]\s*=\s*\{(.*?)\}', text, re.S)
+    slots = [int(n) for n in re.findall(r"\d+", m.group(1))] if m else []
+    _jewel_slots_cache[tree_version] = slots
+    return slots

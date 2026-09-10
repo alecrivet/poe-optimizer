@@ -144,6 +144,13 @@ class GGGToPoB:
         build_elem = self._create_build_element(character)
         root.append(build_elem)
 
+        # Items first: tree jewel sockets and abyssal sockets reference item ids
+        self._tree_jewel_items = {}   # socket node id -> item id
+        if items and self.options.include_items:
+            items_elem = self._create_items_element(items, passives)
+        else:
+            items_elem = self._create_empty_items_element()
+
         # Tree section
         tree_elem = self._create_tree_element(character, passives)
         root.append(tree_elem)
@@ -155,13 +162,8 @@ class GGGToPoB:
         # Update mainSocketGroup based on gem extraction
         build_elem.set("mainSocketGroup", str(self._main_socket_group))
 
-        # Items section
-        if items and self.options.include_items:
-            items_elem = self._create_items_element(items)
-            root.append(items_elem)
-        else:
-            items_elem = self._create_empty_items_element()
-            root.append(items_elem)
+        # Items section (built above)
+        root.append(items_elem)
 
         # Config section
         config_elem = self._create_config_element()
@@ -218,6 +220,10 @@ class GGGToPoB:
         spec = ET.SubElement(tree, "Spec")
         spec.set("title", f"Imported: {character.name}")
         spec.set("treeVersion", self.options.tree_version)
+        # Character imports carry GGG's current cluster-jewel node hashes
+        # (PoB ImportTab sets the same flag); without it PoB treats the ids
+        # as the pre-3.x legacy format and drops the cluster nodes.
+        spec.set("clusterHashFormatVersion", "2")
 
         # Class info for tree
         if character.class_id > 0:
@@ -253,9 +259,12 @@ class GGGToPoB:
                 spec.set("masteryEffects", mastery_str)
                 logger.info(f"Converted {len(passives.mastery_effects)} mastery effects")
 
-            # Jewel sockets placeholder
+            # Jewel sockets: node id -> item id, filled in by _create_items_element
             sockets_elem = ET.SubElement(spec, "Sockets")
-            # NOTE: jewel_data to socket mapping not yet implemented (tracked: S2-001)
+            for node_id, item_id in sorted(getattr(self, "_tree_jewel_items", {}).items()):
+                socket = ET.SubElement(sockets_elem, "Socket")
+                socket.set("nodeId", str(node_id))
+                socket.set("itemId", str(item_id))
 
         else:
             spec.set("nodes", "")
@@ -306,6 +315,8 @@ class GGGToPoB:
             # Group gems by socket group (linked sockets)
             socket_groups: Dict[int, List[Dict]] = {}
             for gem_data in socketed_items:
+                if self._is_jewel(gem_data):
+                    continue  # abyss jewel, handled with items
                 socket_idx = gem_data.get("socket", 0)
                 # Find which socket group this gem belongs to
                 gem_group = self._get_socket_group(item, socket_idx)
@@ -413,7 +424,12 @@ class GGGToPoB:
 
         return gem
 
-    def _create_items_element(self, items: CharacterItems) -> ET.Element:
+    @staticmethod
+    def _is_jewel(raw: Dict[str, Any]) -> bool:
+        tl = (raw.get("typeLine") or "") + " " + (raw.get("baseType") or "")
+        return "Jewel" in tl and "Jewelled" not in tl
+
+    def _create_items_element(self, items: CharacterItems, passives: Optional[PassiveTree] = None) -> ET.Element:
         """Create the <Items> element with equipped gear."""
         items_elem = ET.Element("Items")
         items_elem.set("activeItemSet", "1")
@@ -435,9 +451,39 @@ class GGGToPoB:
             if pob_slot:
                 slot_assignments.append((pob_slot, item_id))
 
+            parent_id = item_id
             item_id += 1
 
-        logger.info(f"Converted {item_id - 1} items")
+            # Abyss jewels socketed in this item's abyssal sockets
+            raw = getattr(item, "_raw_data", None) or {}
+            if pob_slot:
+                abyss_n = 0
+                for socketed in raw.get("socketedItems", []) or []:
+                    if not self._is_jewel(socketed):
+                        continue
+                    abyss_n += 1
+                    jewel = Item.from_dict(socketed)
+                    items_elem.append(self._item_to_xml(jewel, item_id))
+                    slot_assignments.append((f"{pob_slot} Abyssal Socket {abyss_n}", item_id))
+                    item_id += 1
+
+        # Jewels socketed in the passive tree
+        if passives is not None and passives.jewels:
+            try:
+                from src.pob.tree_parser import load_jewel_slots
+                slots = load_jewel_slots(self.options.tree_version)
+            except Exception:
+                logger.warning("Could not load jewel slot order; tree jewels not socketed", exc_info=True)
+                slots = []
+            for jewel in passives.jewels:
+                if jewel.x is None or not (0 <= jewel.x < len(slots)):
+                    logger.warning(f"Tree jewel {jewel.name or jewel.type_line!r} has no socket index; skipped")
+                    continue
+                items_elem.append(self._item_to_xml(jewel, item_id))
+                self._tree_jewel_items[slots[jewel.x]] = item_id
+                item_id += 1
+
+        logger.info(f"Converted {item_id - 1} items ({len(self._tree_jewel_items)} tree jewels)")
 
         # Create ItemSet with slot assignments
         item_set = ET.SubElement(items_elem, "ItemSet")

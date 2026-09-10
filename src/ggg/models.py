@@ -102,6 +102,9 @@ class Item:
     enchant_mods: List[str] = field(default_factory=list)
     fractured_mods: List[str] = field(default_factory=list)
 
+    # Position in the inventory (socket index for PassiveJewels)
+    x: Optional[int] = None
+
     # Influence
     shaper: bool = False
     elder: bool = False
@@ -226,6 +229,10 @@ class PassiveTree:
     hashes_ex: List[int]  # Extended hashes (cluster jewel nodes)
     mastery_effects: Dict[int, int]  # node_id -> effect_id
     jewel_data: Dict[str, Any]  # Jewel socket allocations
+    # Jewels socketed in the tree. The passives endpoint returns them as
+    # "items" with inventoryId "PassiveJewels"; ``x`` indexes PoB's
+    # tree.jewelSlots list to give the socket node id.
+    jewels: List["Item"] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PassiveTree":
@@ -235,9 +242,19 @@ class PassiveTree:
         if isinstance(mastery_raw, dict):
             mastery_effects = {int(k): int(v) for k, v in mastery_raw.items()}
 
+        jewels = []
+        for raw in data.get("items", []) or []:
+            try:
+                jewel = Item.from_dict(raw)
+                jewel.x = raw.get("x")
+                jewels.append(jewel)
+            except Exception:  # pragma: no cover - defensive against API drift
+                continue
+
         return cls(
             hashes=data.get("hashes", []),
             hashes_ex=data.get("hashes_ex", []),
             mastery_effects=mastery_effects,
             jewel_data=data.get("jewel_data", {}),
+            jewels=jewels,
         )

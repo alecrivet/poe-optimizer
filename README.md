@@ -293,6 +293,21 @@ isort src/ tests/
 
 ## Changelog
 
+### v0.11.2
+- **Imported characters now get their jewels.** The converter never
+  socketed jewels: tree jewels (timeless, cluster, Watcher's Eye, ...) and
+  abyss jewels in item sockets were dropped, so cluster nodes vanished
+  (108 of 120 points on a real Trickster) and a 4.9M DPS build imported at
+  160K. Tree jewels are placed using PoB's `jewelSlots` order, abyss jewels
+  go into their item's abyssal sockets, and the spec carries
+  `clusterHashFormatVersion="2"` as PoB's own importer does.
+- Auto point budget no longer sets a floor above the points the build
+  actually has (a character with unspent points had every candidate
+  rejected, so runs finished instantly with no changes).
+- Config defaults: poe.ninja's remaining globals (brands attached, disable
+  EHP gain on block, one nearby rare/unique enemy), transfigured Frenzy
+  gems as a frenzy source, enemy on consecrated ground.
+
 ### v0.11.1
 - **Imported characters get a real configuration.** A character from the
   account API has no PoB config, so its numbers were a fraction of the
