@@ -54,6 +54,7 @@ class JobRequest(BaseModel):
     allow_point_change: bool = False
     max_point_change: int = 5
     iterations: int = 15
+    allow_keystone_changes: bool = False
 
 
 # ---------------------------------------------------------------------- #
@@ -406,6 +407,7 @@ def create_app(pob_path: Optional[Path] = None, workers: Optional[int] = None) -
                 max_point_change=req.max_point_change,
                 iterations=req.iterations,
                 workers=workers,
+                allow_keystone_changes=req.allow_keystone_changes,
             ))
         except ValueError as e:
             raise HTTPException(400, str(e))

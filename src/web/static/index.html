@@ -55,12 +55,13 @@
     <div class="lbl">What do you want more of</div>
     <div class="body">
       <div class="goal" role="radiogroup" aria-label="Goal">
-        <button class="opt sel" role="radio" aria-checked="true" data-objective="dps"><span class="t">Damage</span><span class="s">Most damage for the main skill. May trade some life.</span></button>
-        <button class="opt" role="radio" aria-checked="false" data-objective="life"><span class="t">Survivability</span><span class="s">More life. Damage may drop.</span></button>
-        <button class="opt" role="radio" aria-checked="false" data-objective="balanced"><span class="t">Both</span><span class="s">Balanced. Only takes changes that help overall.</span></button>
+        <button class="opt sel" role="radio" aria-checked="true" data-objective="dps"><span class="t">Damage</span><span class="s">Most damage for the main skill. May trade some effective HP.</span></button>
+        <button class="opt" role="radio" aria-checked="false" data-objective="ehp"><span class="t">Survivability</span><span class="s">More effective HP: life, energy shield, block, mitigation. Damage may drop.</span></button>
+        <button class="opt" role="radio" aria-checked="false" data-objective="balanced"><span class="t">Both</span><span class="s">Damage and effective HP weighted equally. Only takes changes that help the pair.</span></button>
       </div>
       <div class="guards">
         <label><input type="checkbox" id="allow-points"> Allow adding passive points</label>
+        <label title="PoB's numbers miss much of what keystones do (leech, recovery, mechanics), so they stay put unless you say so."><input type="checkbox" id="allow-keystones"> Allow changing keystones</label>
         <details class="fine inline">
           <summary>More options</summary>
           <label>Stop after <input id="iterations" type="number" min="1" max="100" value="15" class="num"> improvements</label>

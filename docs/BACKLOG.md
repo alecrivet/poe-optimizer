@@ -7,6 +7,11 @@ Shipped items move to the README changelog; completed plans move to
 ## Next up
 
 ### Optimizer quality
+- [ ] **Recovery-aware objective.** EHP ignores leech, regen and recovery,
+      which is why keystones are now protected. A "sustain" term (PoB's
+      LifeLeechGainRate / EnergyShieldLeechGainRate / regen outputs are in
+      the worker stats already) folded into Balanced would let keystone
+      changes be judged honestly.
 - [ ] **Constraint objectives in the greedy loop.** `--min-life` / `--min-ehp`
       are parsed but not enforced during candidate selection; `dps` runs on the
       fixture trade -9% life for +42% DPS. Filter candidates whose extrapolated

@@ -75,12 +75,13 @@ A 10-iteration run on a level 96 build takes about a minute on 8 cores.
 
 | Flag | Meaning |
 |---|---|
-| `--objective dps\|life\|ehp\|balanced` | What to maximise. `balanced` averages the three. |
+| `--objective dps\|ehp\|life\|balanced` | What to maximise. `balanced` weights damage and effective HP equally. `life` is rarely what you want (a CI build has 1 life); the UI's Survivability is `ehp`. |
 | `--iterations N` | Max number of improvements to apply (greedy). |
 | `--allow-point-change` | Let the point count grow above the current build (off by default; swaps still happen). |
 | `--max-point-change N` | How far the point count may move from the original (default 5). |
 | `--max-points N` / `--disable-constraints` | Override or disable the level-based point budget. |
 | `--no-masteries` | Leave mastery selections alone. |
+| `--allow-keystones` | Let the optimizer add or remove keystones (off by default: PoB's numbers can't see leech, recovery or mechanics, so it would drop Ghost Reaver on a CI build). |
 | `--workers N` | PoB worker processes (default: CPU count; more than physical cores does not help). |
 | `--algorithm genetic --generations G --population-size P` | Population search instead of greedy (experimental). |
 | `--pob-code` | Print only the PoB code (for piping). |
@@ -104,7 +105,7 @@ PoB and confirm; the tool's numbers are PoB's node-hover numbers, so they
 should match the tooltip deltas exactly.
 
 If the result trades away defence you care about, re-run with
-`--objective balanced` or `life`. Per-stat floors (`--min-life`) are on the
+`--objective balanced` or `ehp`. Per-stat floors (`--min-life`) are on the
 backlog and currently have no effect.
 
 ## Other commands

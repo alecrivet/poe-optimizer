@@ -281,11 +281,11 @@ class Population:
         elif objective == 'ehp':
             base = eval_result.ehp_change_percent
         elif objective == 'balanced':
+            # Damage and effective HP, equally weighted (life is inside EHP)
             base = (
                 eval_result.dps_change_percent +
-                eval_result.life_change_percent +
                 eval_result.ehp_change_percent
-            ) / 3
+            ) / 2
         else:
             raise ValueError(f"Unknown objective: {objective}")
 

@@ -32,6 +32,7 @@ class JobOptions:
     iterations: int = 15
     workers: Optional[int] = None
     min_improvement: float = 0.1
+    allow_keystone_changes: bool = False
 
     def validate(self) -> None:
         if self.objective not in OBJECTIVES:
@@ -249,6 +250,7 @@ class JobRunner:
                 max_points_change=opts.max_point_change,
                 max_workers=self.workers,
                 show_progress=False,
+                allow_keystone_changes=opts.allow_keystone_changes,
             )
 
             def on_iteration(ev) -> None:

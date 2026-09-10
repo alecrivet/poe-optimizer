@@ -182,6 +182,7 @@ class GreedyTreeOptimizer:
         constraints: Optional[ConstraintSet] = None,  # Point budget / attribute constraints
         use_incremental: bool = True,  # Use PoB's incremental calculator (fast path)
         swap_candidates: int = DEFAULT_SWAP_CANDIDATES,  # Swap combos per iteration (incremental)
+        allow_keystone_changes: bool = False,  # Let the optimizer add/remove keystones
     ):
         """
         Initialize the optimizer.
@@ -212,6 +213,10 @@ class GreedyTreeOptimizer:
         self.max_iterations = max_iterations
         self.use_incremental = use_incremental
         self.swap_candidates = swap_candidates
+        # Keystones define a build and PoB's DPS/EHP numbers miss much of what
+        # they do (leech, recovery, mechanics), so they are off limits unless
+        # explicitly allowed.
+        self.allow_keystone_changes = allow_keystone_changes
         self.incremental_calculator: Optional[IncrementalCalculator] = None
         self.min_improvement = min_improvement
         self.max_points_change = max_points_change
@@ -917,6 +922,8 @@ class GreedyTreeOptimizer:
             return False
         if node.node_type == "jewel" and node_id in protected:
             return False
+        if node.node_type == "keystone" and not self.allow_keystone_changes:
+            return False
         return True
 
     def _generate_delta_candidates(
@@ -967,6 +974,8 @@ class GreedyTreeOptimizer:
                     continue
                 if node.node_type == "jewel":
                     continue  # empty socket adds nothing without a jewel
+                if node.node_type == "keystone" and not self.allow_keystone_changes:
+                    continue
                 deltas[f"Add node {node_id} ({node.name})"] = TreeDelta(add=[node_id])
 
         return deltas
@@ -1700,11 +1709,12 @@ class GreedyTreeOptimizer:
         elif objective == 'ehp':
             return eval_result.ehp_change_percent
         elif objective == 'balanced':
-            # Simple balanced score: average of normalized changes
+            # Damage and effective HP, equally weighted. Life is deliberately
+            # not part of it: EHP already accounts for life, energy shield,
+            # block, suppression and mitigation, and a CI build has 1 life.
             return (
                 eval_result.dps_change_percent +
-                eval_result.life_change_percent +
                 eval_result.ehp_change_percent
-            ) / 3
+            ) / 2
         else:
             raise ValueError(f"Unknown objective: {objective}")

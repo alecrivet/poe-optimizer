@@ -89,6 +89,17 @@ class TestSetPassiveTree:
 
 
 class TestCandidateGeneration:
+    def test_keystones_are_protected_by_default(self, optimizer):
+        optimizer.tree_graph.add_node(_node(7, "Ghost Reaver", node_type="keystone", connections=[3]))
+        optimizer.tree_graph.get_node(3).connections.append(7)
+        deltas = optimizer._generate_delta_candidates({1, 2, 3, 7}, {}, protected=set(), class_starts={1})
+        assert not any(7 in d.remove for d in deltas.values())
+        deltas = optimizer._generate_delta_candidates({1, 2, 3}, {}, protected=set(), class_starts={1})
+        assert not any(7 in d.add for d in deltas.values())
+        optimizer.allow_keystone_changes = True
+        deltas = optimizer._generate_delta_candidates({1, 2, 3}, {}, protected=set(), class_starts={1})
+        assert any(7 in d.add for d in deltas.values())
+
     def test_removals_skip_start_ascendancy_protected_and_masteries(self, optimizer):
         allocated = {1, 2, 3, 4, 6, 9}
         deltas = optimizer._generate_delta_candidates(allocated, {}, protected={4}, class_starts={1})
@@ -313,3 +324,16 @@ class TestGreedyIncrementalEndToEnd:
         assert get_passive_tree_summary(result.optimized_xml)["allocated_nodes"] != \
             get_passive_tree_summary(xml)["allocated_nodes"]
         assert result.final_nodes == get_passive_tree_summary(result.optimized_xml)["allocated_nodes"]
+
+
+class TestBalancedObjective:
+    def test_balanced_is_dps_and_ehp_only(self, optimizer):
+        ev = RelativeEvaluation(
+            baseline_dps=1, baseline_life=1, baseline_ehp=1, estimated_dps=1, estimated_life=1, estimated_ehp=1,
+            dps_ratio=1, life_ratio=1, ehp_ratio=1,
+            dps_change_percent=10.0, life_change_percent=-40.0, ehp_change_percent=6.0,
+            baseline_lua_dps=1, modified_lua_dps=1,
+        )
+        # A CI-style candidate: life tanks, EHP rises. Old formula gave -8; now +8.
+        assert optimizer._get_improvement_value(ev, "balanced") == 8.0
+        assert optimizer._get_improvement_value(ev, "ehp") == 6.0

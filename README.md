@@ -146,7 +146,7 @@ poe-optimizer encode optimized.xml
 
 ```bash
 poe-optimizer optimize build.xml \
-  --objective dps \           # dps, life, ehp, balanced
+  --objective dps \           # dps, ehp, life, balanced (= dps + ehp)
   --algorithm greedy \        # greedy (default) or genetic
   --iterations 50 \           # Greedy: max improvements to apply
   --workers 8 \               # PoB worker processes (default: CPU count)
@@ -292,6 +292,19 @@ isort src/ tests/
 - **Jewel Contents:** Can swap jewel locations but doesn't optimize jewel contents or timeless seeds
 
 ## Changelog
+
+### v0.11.5
+- **Balanced objective is now damage + effective HP**, equally weighted,
+  instead of averaging DPS, life and EHP. Life is already inside EHP and is
+  meaningless on CI builds (1 life, tanky through ES), so the old average
+  could reward a "healthier" tree that was less tanky. The UI's
+  Survivability option now targets EHP (life, energy shield, block,
+  mitigation) rather than life; `--objective life` remains in the CLI.
+- **Keystones are protected by default.** PoB's DPS and EHP numbers miss
+  much of what keystones do (Ghost Reaver's ES leech, for one), so the
+  optimizer was happy to drop them for a tiny gain. Adding or removing
+  keystones is now opt-in: "Allow changing keystones" in the UI,
+  `--allow-keystones` in the CLI.
 
 ### v0.11.4
 - **Result numbers matched the card.** Stats PoB saves into a build

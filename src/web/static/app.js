@@ -179,6 +179,7 @@ async function startRun() {
     allow_point_change: $("#allow-points").checked,
     max_point_change: +$("#max-point-change").value || 5,
     iterations: +$("#iterations").value || 15,
+    allow_keystone_changes: $("#allow-keystones").checked,
   };
   try {
     const { job_id } = await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
@@ -266,7 +267,7 @@ async function showResult(jobId) {
 
   const objKey = state.objective === "balanced" ? "dps" : state.objective;
   const headline = state.objective === "balanced"
-    ? (r.change_pct.dps + r.change_pct.life + r.change_pct.ehp) / 3
+    ? (r.change_pct.dps + r.change_pct.ehp) / 2
     : r.change_pct[objKey];
   const num = $("#hero-num");
   num.textContent = fmt.pct(headline);
@@ -288,12 +289,12 @@ async function showResult(jobId) {
 
   const note = $("#result-note");
   const worse = [];
-  if (state.objective !== "life" && r.change_pct.life < -2) worse.push(`Life dropped ${Math.abs(r.change_pct.life).toFixed(1)}%.`);
   if (state.objective !== "ehp" && r.change_pct.ehp < -5) worse.push(`Effective HP dropped ${Math.abs(r.change_pct.ehp).toFixed(1)}%.`);
-  if (state.objective === "life" && r.change_pct.dps < -2) worse.push(`Damage dropped ${Math.abs(r.change_pct.dps).toFixed(1)}%.`);
+  if (state.objective !== "life" && r.before.life > 1 && r.change_pct.life < -5) worse.push(`Life dropped ${Math.abs(r.change_pct.life).toFixed(1)}%.`);
+  if (state.objective === "ehp" && r.change_pct.dps < -2) worse.push(`Damage dropped ${Math.abs(r.change_pct.dps).toFixed(1)}%.`);
   if (r.constraint_violations && r.constraint_violations.length) worse.push(r.constraint_violations.join(" "));
   if (worse.length) {
-    note.textContent = worse.join(" ") + (state.objective === "dps" ? " Re-run with Survivability or Both if that matters for your content." : "");
+    note.textContent = worse.join(" ") + (state.objective === "dps" ? " Re-run with Both or Survivability if that matters for your content." : "");
     show(note);
   } else show(note, false);
 

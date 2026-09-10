@@ -97,6 +97,12 @@ logger = logging.getLogger(__name__)
     help="Disable point budget constraints. Default: constraints enabled."
 )
 @click.option(
+    "--allow-keystones",
+    is_flag=True,
+    default=False,
+    help="Let the optimizer add or remove keystones (off by default: PoB's numbers miss leech, recovery and mechanics)."
+)
+@click.option(
     "--workers", "-w",
     type=int,
     default=None,
@@ -156,6 +162,7 @@ def optimize(
     min_ehp: Optional[int],
     max_points: Optional[int],
     disable_constraints: bool,
+    allow_keystones: bool,
     workers: Optional[int],
     incremental: bool,
     pob_code: bool,
@@ -239,6 +246,7 @@ def optimize(
                 max_workers=workers,
                 use_incremental=incremental,
                 max_points_change=max_point_change,
+                allow_keystone_changes=allow_keystones,
             )
             result = optimizer.optimize(
                 build_xml,
