@@ -233,6 +233,33 @@ class GGGClient:
         data = self._request(self.ENDPOINTS["passives"], params)
         return PassiveTree.from_dict(data)
 
+    def get_character_for_pob(self, account_name: str, character_name: str) -> Dict[str, Any]:
+        """
+        Fetch a character as the single object Path of Building's importer
+        expects: ``{name, class, league, level, equipment, jewels, passives}``.
+
+        Built from the character-window items and passive-skills endpoints;
+        ``class`` is the ascendancy name when ascended, as PoB resolves it
+        through its ascendancy name map.
+        """
+        params = {"accountName": account_name, "character": character_name}
+        if self.realm != Realm.PC:
+            params["realm"] = self.realm.value
+        items = self._request(self.ENDPOINTS["items"], params)
+        passives = self._request(self.ENDPOINTS["passives"], params)
+
+        char = dict(items.get("character") or {})
+        jewels = passives.pop("items", []) or []
+        return {
+            "name": char.get("name", character_name),
+            "class": char.get("class") or "",
+            "league": char.get("league", ""),
+            "level": char.get("level", 1),
+            "equipment": items.get("items", []) or [],
+            "jewels": jewels,
+            "passives": passives,
+        }
+
     def get_full_character(
         self,
         account_name: str,

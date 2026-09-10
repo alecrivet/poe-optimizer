@@ -269,8 +269,8 @@ class GGGToPoB:
         else:
             spec.set("nodes", "")
 
-        # URL placeholder
-        url_elem = ET.SubElement(spec, "URL")
+        # No <URL> element: PoB's PassiveSpec:Load aborts the whole tree
+        # load on a URL element without content, which zeroed every import.
 
         return tree
 

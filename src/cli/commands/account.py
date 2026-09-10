@@ -133,6 +133,13 @@ def list_characters(
     help="Import only passive tree (faster, smaller output)."
 )
 @click.option(
+    "--python-converter",
+    is_flag=True,
+    default=False,
+    help="Use the built-in Python converter instead of Path of Building's own importer "
+         "(the PoB importer needs luajit and is the default)."
+)
+@click.option(
     "--no-config-defaults",
     is_flag=True,
     default=False,
@@ -154,6 +161,7 @@ def import_character(
     poesessid: Optional[str],
     pob_code: bool,
     passives_only: bool,
+    python_converter: bool,
     no_config_defaults: bool,
     tree_version: Optional[str],
     json_output: bool,
@@ -204,6 +212,38 @@ def import_character(
             f"(Level {character.level} {character.ascendancy_name or character.class_name})"
         )
 
+        xml_str = None
+        converter = None
+        if not python_converter and not passives_only:
+            # Path of Building's own importer: exact items, gems, jewels,
+            # cluster nodes, tattoos and bloodline ascendancy.
+            try:
+                from src.pob.worker_pool import PoBWorker
+                from src.pob.modifier import select_main_socket_group
+                output.progress("Importing through Path of Building...")
+                char_obj = client.get_character_for_pob(account_name, character.name)
+                worker = PoBWorker(worker_id=0)
+                if worker.start():
+                    try:
+                        res = worker.import_character(char_obj)
+                    finally:
+                        worker.stop()
+                    if res.success and res.xml:
+                        xml_str, _ = select_main_socket_group(res.xml)
+                    else:
+                        output.warning(f"PoB importer failed ({res.error}); using the Python converter")
+                else:
+                    output.warning("Could not start a PoB worker; using the Python converter")
+            except Exception as e:  # noqa: BLE001 - fall back, never block the import
+                output.warning(f"PoB importer unavailable ({e}); using the Python converter")
+
+        if xml_str is not None and not no_config_defaults:
+            from src.ggg.config_rules import apply_default_config
+            xml_str, assumptions = apply_default_config(xml_str, tree_version)
+            if assumptions:
+                output.progress("Config assumed: " + ", ".join(a.label for a in assumptions)
+                                + " (use --no-config-defaults to skip)")
+
         # Fetch passive tree
         output.progress("Fetching passive tree...")
         passives = client.get_passive_skills(account_name, character.name)
@@ -223,9 +263,10 @@ def import_character(
             apply_config_defaults=not no_config_defaults,
         )
 
-        converter = GGGToPoB(options)
-        xml_str = converter.convert(character, items, passives)
-        if converter.assumptions:
+        if xml_str is None:
+            converter = GGGToPoB(options)
+            xml_str = converter.convert(character, items, passives)
+        if converter is not None and converter.assumptions:
             output.progress("Config assumed: " + ", ".join(a.label for a in converter.assumptions)
                             + " (use --no-config-defaults to skip)")
 

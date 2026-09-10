@@ -60,6 +60,7 @@ class EvaluationResult:
     error: Optional[str] = None
     points_used: Optional[int] = None
     nodes: Optional[List[int]] = None  # resulting allocated node ids (session replies)
+    xml: Optional[str] = None          # PoB XML (IMPORT replies)
 
 
 @dataclass
@@ -361,6 +362,26 @@ class PoBWorker:
         except WorkerProtocolError as e:
             return EvaluationResult(success=False, error=str(e))
 
+    def import_character(self, character: Dict, timeout: float = 120.0) -> EvaluationResult:
+        """
+        Import a character through PoB's own ImportTab (IMPORT command).
+
+        ``character`` is the object PoB expects: name, class (ascendancy name
+        if ascended), league, level, equipment (item list), jewels (tree
+        jewel items) and passives (the passive-skills response). The result's
+        ``xml`` is PoB's serialisation of the imported build.
+        """
+        try:
+            payload = base64.b64encode(json.dumps(character).encode("utf-8")).decode("ascii")
+            data = self._request("IMPORT " + payload, timeout)
+            result = self._to_result(data)
+            if result.success and data.get("xml"):
+                result.xml = base64.b64decode(data["xml"]).decode("utf-8", errors="replace")
+            self.session_loaded = False
+            return result
+        except WorkerProtocolError as e:
+            return EvaluationResult(success=False, error=str(e))
+
     def ping(self, timeout: float = 5.0) -> bool:
         """Check that the worker is alive and responsive."""
         if not self._is_ready or self._is_dead:
@@ -603,6 +624,10 @@ class PoBWorkerPool:
         if not self._started or self._shutdown:
             return [EvaluationResult(success=False, error="Pool not started")] * len(builds)
         return self._map(builds, lambda xml: self.evaluate(xml, timeout))
+
+    def import_character(self, character: Dict, timeout: float = 120.0) -> EvaluationResult:
+        """Import a character through PoB's importer on any idle worker."""
+        return self._with_worker(lambda w: w.import_character(character, timeout), timeout)
 
     # ------------------------------------------------------------------ #
     # Session API

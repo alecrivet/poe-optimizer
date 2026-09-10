@@ -28,6 +28,10 @@
 --                             to the current tree.
 --                           - "masteries" temporarily overrides mastery
 --                             effect selections.
+--   IMPORT <base64 json>    Import a character through PoB's own ImportTab
+--                           (items, gems, tree, jewels, cluster nodes,
+--                           tattoos, bloodline ascendancy). Reply carries
+--                           the resulting build as base64 XML plus stats.
 --   PING                    -> {"pong":true}
 --   EXIT                    -> {"exit":true} and terminate.
 --
@@ -596,6 +600,74 @@ local function sessionDelta(req)
 end
 
 -- ---------------------------------------------------------------------------
+-- Character import through PoB's own importer
+-- ---------------------------------------------------------------------------
+
+local b64chars_enc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+local function base64_encode(data)
+    return ((data:gsub('.', function(x)
+        local r, b = '', x:byte()
+        for i = 8, 1, -1 do r = r .. (b % 2^i - b % 2^(i-1) > 0 and '1' or '0') end
+        return r
+    end) .. '0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+        if #x < 6 then return '' end
+        local c = 0
+        for i = 1, 6 do c = c + (x:sub(i, i) == '1' and 2^(6-i) or 0) end
+        return b64chars_enc:sub(c+1, c+1)
+    end) .. ({ '', '==', '=' })[#data % 3 + 1])
+end
+
+-- Pick the socket group most likely to be the main skill: the group with the
+-- most non-support gems, preferring the body armour on ties. PoB's importer
+-- deliberately leaves this unset.
+local function chooseMainSocketGroup()
+    local bestIdx, bestScore = 1, -1
+    for i, group in ipairs(build.skillsTab.socketGroupList or {}) do
+        local actives, supports = 0, 0
+        for _, gem in ipairs(group.gemList or {}) do
+            if gem.grantedEffect then
+                if gem.grantedEffect.support then supports = supports + 1 else actives = actives + 1 end
+            end
+        end
+        if actives > 0 then
+            local score = supports * 10 + actives + ((group.slot == "Body Armour") and 5 or 0)
+            if score > bestScore then bestIdx, bestScore = i, score end
+        end
+    end
+    return bestIdx
+end
+
+-- IMPORT <base64 json>: the character object PoB's ImportTab expects
+-- ({name, class, league, level, equipment=[items], jewels=[items], passives={...}}).
+-- Replies with PoB's own XML for the imported build plus its stats.
+local function importCharacter(jsonText)
+    local ok, err = pcall(loadBuildFromJSON, jsonText)
+    if not ok then
+        return {success = false, error = "PoB import failed: " .. tostring(err)}
+    end
+    for i = 1, 5 do runCallback("OnFrame") end
+    if build and build.skillsTab then
+        build.mainSocketGroup = chooseMainSocketGroup()
+    end
+    build.buildFlag = true
+    build.calcsTab:BuildOutput()
+    runCallback("OnFrame")
+    local okSave, xmlText = pcall(function() return build:SaveDB("import") end)
+    if not okSave or not xmlText then
+        return {success = false, error = "PoB could not serialise the imported build: " .. tostring(xmlText)}
+    end
+    session.loaded = false
+    local output = build.calcsTab.mainOutput or {}
+    return {
+        success = true,
+        xml = base64_encode(xmlText),
+        stats = extractStats(output),
+        pointsUsed = countPoints(build.spec),
+        mainSocketGroup = build.mainSocketGroup,
+    }
+end
+
+-- ---------------------------------------------------------------------------
 -- Main loop
 -- ---------------------------------------------------------------------------
 
@@ -635,6 +707,14 @@ while true do
         else
             local ok2, result = pcall(sessionLoad, xmlContent)
             respond(ok2 and result or {success = false, error = "Load failed: " .. tostring(result)})
+        end
+    elseif line:sub(1, 7) == "IMPORT " then
+        local ok, jsonText = pcall(base64_decode, line:sub(8))
+        if not ok or not jsonText or jsonText == "" then
+            respond({success = false, error = "Failed to decode base64 input"})
+        else
+            local ok2, result = pcall(importCharacter, jsonText)
+            respond(ok2 and result or {success = false, error = "Import failed: " .. tostring(result)})
         end
     elseif line:sub(1, 4) == "SET " then
         respond(handleJSONCommand(line:sub(5), sessionSet))

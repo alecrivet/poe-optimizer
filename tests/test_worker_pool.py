@@ -185,3 +185,37 @@ class TestLatestTreeVersion:
             assert committed.success, committed.error
         finally:
             worker.stop()
+
+
+@needs_pob
+class TestPoBImport:
+    def test_import_minimal_character_through_pob(self):
+        """IMPORT: PoB's own ImportTab builds the XML (tree, jewels, cluster nodes)."""
+        from src.pob.tree_parser import load_jewel_slots, load_passive_tree
+        from src.web.tree_data import get_tree_data
+        graph = load_passive_tree("3_29")
+        # a short Duelist path: the class start's first two neighbours
+        start = get_tree_data("3_29").class_starts["Duelist"]
+        first = [n for n in graph.get_neighbors(start) if graph.get_node(n) and not graph.get_node(n).is_ascendancy][:2]
+        char = {
+            "name": "Fixture", "class": "Slayer", "league": "Standard", "level": 60,
+            "equipment": [{"id": "w", "name": "", "typeLine": "Rusted Sword", "frameType": 0, "ilvl": 1, "identified": True, "inventoryId": "Weapon", "x": 0, "y": 0, "w": 1, "h": 3,
+                           "sockets": [{"group": 0, "attr": "S", "sColour": "R"}],
+                           "socketedItems": [{"id": "g", "typeLine": "Cyclone", "frameType": 4, "socket": 0,
+                                              "properties": [{"name": "Level", "values": [["20", 0]]}, {"name": "Quality", "values": [["+20%", 1]]}]}]}],
+            "jewels": [{"id": "j", "name": "", "typeLine": "Crimson Jewel", "frameType": 0, "ilvl": 1, "identified": True, "inventoryId": "PassiveJewels", "x": 0, "y": 0, "w": 1, "h": 1,
+                        "explicitMods": ["+7% to maximum Life"]}],
+            "passives": {"hashes": first, "hashes_ex": [], "mastery_effects": {}, "jewel_data": {}, "skill_overrides": {}, "alternate_ascendancy": 0},
+        }
+        w = PoBWorker(worker_id=0)
+        assert w.start()
+        try:
+            res = w.import_character(char)
+        finally:
+            w.stop()
+        assert res.success, res.error
+        assert res.xml and "<PathOfBuilding>" in res.xml
+        assert res.points_used == len(first)
+        assert 'className="Duelist"' in res.xml and 'ascendClassName="Slayer"' in res.xml
+        assert "Crimson Jewel" in res.xml and f'nodeId="{load_jewel_slots("3_29")[0]}"' in res.xml
+        assert "Cyclone" in res.xml

@@ -63,6 +63,7 @@ stderr so stdout is protocol-only.
 | `DELTA {"add":[..],"remove":[..],"masteries":{id:effect}}` | 0.04-0.1 s warm (up to 0.3 s on 2.60) | Evaluate a change to the base **without applying it**. `remove` takes the node and every node that depends on it for connectivity (`node.depends`, same as unallocating in the UI). `add` allocates the node and its shortest path. Masteries are patched in temporarily. Reply includes `stats`, `pointsUsed`, `added`, `removed`, `nodes`. |
 | `SET {"nodes":[..],"masteries":{..}}` | 0.15-0.5 s | Replace the base tree in place (`PassiveSpec:ImportFromNodeList`) and evaluate it. |
 | `<base64 xml>` | 1-5 s | Legacy full reload and evaluation. Replaces the session build. |
+| `IMPORT <base64 json>` | 2-5 s | Feed a character object (`name, class, league, level, equipment, jewels, passives`) to PoB's own ImportTab; reply carries PoB's serialised XML (base64) and stats. Used for account imports so jewels, cluster nodes, tattoos and bloodlines match PoB desktop. |
 | `PING` / `EXIT` | - | Health check / clean shutdown. |
 
 `DELTA` uses `CalcsTab:GetMiscCalculator()`, the code path that powers PoB's

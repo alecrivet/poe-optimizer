@@ -216,3 +216,21 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("✓ All modifier tests passed!")
     print("=" * 70)
+
+
+class TestSelectMainSocketGroup:
+    def test_prefers_most_supported_group(self):
+        from src.pob.modifier import select_main_socket_group
+        xml = """<PathOfBuilding><Build mainSocketGroup="1"/><Skills><SkillSet id="1">
+        <Skill slot="Gloves"><Gem nameSpec="Smite" skillId="Smite"/></Skill>
+        <Skill slot="Helmet"><Gem nameSpec="Discipline" skillId="Discipline"/><Gem nameSpec="Enlighten" skillId="SupportEnlighten"/></Skill>
+        <Skill slot="Body Armour"><Gem nameSpec="Flicker Strike" skillId="FlickerStrike"/><Gem nameSpec="Multistrike" skillId="SupportMultistrike"/><Gem nameSpec="Close Combat" skillId="SupportCloseCombat"/></Skill>
+        </SkillSet></Skills></PathOfBuilding>"""
+        out, idx = select_main_socket_group(xml)
+        assert idx == 3 and 'mainSocketGroup="3"' in out
+
+    def test_no_active_gems(self):
+        from src.pob.modifier import select_main_socket_group
+        xml = '<PathOfBuilding><Build mainSocketGroup="1"/><Skills><SkillSet id="1"><Skill slot="Helmet"><Gem nameSpec="Enlighten" skillId="SupportEnlighten"/></Skill></SkillSet></Skills></PathOfBuilding>'
+        out, idx = select_main_socket_group(xml)
+        assert idx == 0 and 'mainSocketGroup="1"' in out

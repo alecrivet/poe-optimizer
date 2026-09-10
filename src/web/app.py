@@ -153,9 +153,18 @@ def _ggg_client(poesessid: Optional[str], realm: str):
     return GGGClient(poesessid=poesessid or None, realm=realm_enum)
 
 
+_import_evaluator = None  # set by create_app so the importer can use PoB workers
+
+
 def _import_character(req: BuildRequest) -> str:
+    """
+    Import through PoB's own ImportTab (exact items, gems, jewels, cluster
+    nodes, tattoos, bloodline ascendancy), falling back to the Python
+    converter if no PoB worker is available.
+    """
     from src.ggg.converter import ConversionOptions, GGGToPoB
     from src.ggg.exceptions import CharacterNotFoundError, GGGAPIError, PrivateProfileError
+    from src.pob.modifier import select_main_socket_group
 
     client = _ggg_client(req.poesessid, req.realm)
     try:
@@ -163,6 +172,20 @@ def _import_character(req: BuildRequest) -> str:
         character = next((c for c in characters if c.name.lower() == req.character.lower()), None)
         if character is None:
             raise HTTPException(404, f"No character named '{req.character}' on account '{req.account}'")
+
+        if _import_evaluator is not None:
+            try:
+                char_obj = client.get_character_for_pob(req.account, character.name)
+                res = _import_evaluator.import_character(char_obj)
+                if res is not None and res.success and res.xml:
+                    xml, _ = select_main_socket_group(res.xml)
+                    return xml
+                logger.warning("PoB importer failed (%s); using Python converter", getattr(res, "error", "no worker"))
+            except (PrivateProfileError, CharacterNotFoundError, GGGAPIError):
+                raise
+            except Exception:
+                logger.warning("PoB importer failed; using Python converter", exc_info=True)
+
         passives = client.get_passive_skills(req.account, character.name)
         items = client.get_items(req.account, character.name)
         # Convert without defaults first so assumptions can be re-applied later
@@ -228,13 +251,23 @@ class _Evaluator:
     def __init__(self):
         self.pool = None
 
-    def stats(self, xml: str) -> Optional[Dict[str, float]]:
+    def _ensure(self):
         from src.pob.worker_pool import PoBWorkerPool
+        if self.pool is None:
+            self.pool = PoBWorkerPool(num_workers=1)
+            self.pool.start()
+        return self.pool
+
+    def import_character(self, character: Dict[str, Any]):
         try:
-            if self.pool is None:
-                self.pool = PoBWorkerPool(num_workers=1)
-                self.pool.start()
-            res = self.pool.evaluate(xml, timeout=120)
+            return self._ensure().import_character(character, timeout=180)
+        except Exception:
+            logger.warning("PoB import failed", exc_info=True)
+            return None
+
+    def stats(self, xml: str) -> Optional[Dict[str, float]]:
+        try:
+            res = self._ensure().evaluate(xml, timeout=120)
             if not res.success:
                 logger.warning("headless estimate failed: %s", res.error)
                 return None
@@ -265,6 +298,8 @@ def create_app(pob_path: Optional[Path] = None, workers: Optional[int] = None) -
     app.state.runner = runner
     app.state.builds = builds
     app.state.evaluator = evaluator
+    global _import_evaluator
+    _import_evaluator = evaluator
 
     @app.on_event("shutdown")
     def _shutdown():

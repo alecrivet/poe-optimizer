@@ -108,7 +108,7 @@ function showBuildCard(card, placeholder) {
   const s = card.stats;
   const statsLine = card.stats_source === "none"
     ? '<span class="note">Stats will be calculated when you run.</span>'
-    : `<span class="mono small ash">${fmt.big(s.dps)} dps · ${fmt.big(s.life)} life · ${fmt.big(s.ehp)} ehp · ${card.points} points</span>`;
+    : `<span class="mono small ash">${fmt.big(s.dps)} dps · ${(s.energy_shield > s.life) ? fmt.big(s.energy_shield) + " es" : fmt.big(s.life) + " life"} · ${fmt.big(s.ehp)} ehp · ${card.points} points</span>`;
   const src = card.stats_source === "pob" ? "Numbers from Path of Building" : card.stats_source === "estimated" ? "Numbers estimated with the assumptions below" : "";
   const jew = [];
   if (card.jewels.timeless) jew.push(card.jewels.timeless + " timeless");

@@ -12,7 +12,7 @@ Modification Strategy:
 """
 
 import xml.etree.ElementTree as ET
-from typing import Iterable, List, Optional, Dict, Set
+from typing import Iterable, Tuple, List, Optional, Dict, Set
 import logging
 
 logger = logging.getLogger(__name__)
@@ -166,6 +166,43 @@ def ensure_config_element(xml: str) -> str:
     if idx < 0:
         return xml
     return xml[:idx] + "<Config></Config>" + xml[idx:]
+
+
+def select_main_socket_group(xml: str) -> Tuple[str, int]:
+    """
+    Choose the socket group most likely to be the main skill and write it
+    as ``Build@mainSocketGroup`` (1-based, in <Skill> order).
+
+    Heuristic (same as the CLI/GGG converter): the group with the most
+    support gems wins (supports mark the real link), then most gems, then
+    the Body Armour. Groups with no active gem are skipped. Returns the
+    modified XML and the chosen index (0 if nothing suitable).
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as e:
+        raise BuildModificationError(f"Invalid XML: {e}")
+
+    skill_set = root.find(".//Skills/SkillSet")
+    groups = list(skill_set.findall("Skill")) if skill_set is not None else list(root.findall(".//Skills/Skill"))
+    best_idx, best_key = 0, None
+    for idx, group in enumerate(groups, start=1):
+        gems = [g for g in group.findall("Gem") if g.get("enabled", "true") != "false"]
+        # PoB drops the " Support" suffix in nameSpec; use skillId / gemId hints
+        supports = sum(1 for g in gems if "Support" in (g.get("skillId") or "") or "Support" in (g.get("gemId") or "") or "support" in (g.get("nameSpec") or "").lower())
+        actives = len(gems) - supports
+        if actives <= 0:
+            continue
+        key = (supports, len(gems), 1 if group.get("slot") == "Body Armour" else 0)
+        if best_key is None or key > best_key:
+            best_idx, best_key = idx, key
+
+    build = root.find("Build")
+    if best_idx and build is not None:
+        build.set("mainSocketGroup", str(best_idx))
+        for idx, group in enumerate(groups, start=1):
+            group.set("mainActiveSkill", "1")
+    return ET.tostring(root, encoding="unicode"), best_idx
 
 
 def set_passive_tree(

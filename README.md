@@ -293,6 +293,23 @@ isort src/ tests/
 
 ## Changelog
 
+### v0.11.3
+- **Character import now goes through Path of Building's own importer.**
+  A new `IMPORT` worker command feeds the account API data to PoB's
+  ImportTab and returns PoB's serialised build: items, gems, tree jewels,
+  cluster-jewel nodes, tattoos and bloodline (secondary) ascendancies come
+  out exactly as PoB desktop's "Import character". We pick the main skill
+  group (most supports, then Body Armour) and apply the config rulebook.
+  Verified on a public level 97 Flicker Strike Trickster against poe.ninja's
+  export: 120 points, 9,149 ES and 131,795 EHP identical; 5.9M DPS vs their
+  4.9M, the difference being extra assumptions our rulebook fires (all
+  untickable on the card). The Python converter remains as a fallback
+  (`account import --python-converter`).
+- Fixed: the converter's empty `<URL/>` element made PoB abort the tree load,
+  so every account import evaluated with zero passive points.
+- Account names with a `#discriminator` work as typed.
+- Build card shows energy shield instead of life for CI builds.
+
 ### v0.11.2
 - **Imported characters now get their jewels.** The converter never
   socketed jewels: tree jewels (timeless, cluster, Watcher's Eye, ...) and
