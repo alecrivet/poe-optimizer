@@ -234,3 +234,13 @@ class TestSelectMainSocketGroup:
         xml = '<PathOfBuilding><Build mainSocketGroup="1"/><Skills><SkillSet id="1"><Skill slot="Helmet"><Gem nameSpec="Enlighten" skillId="SupportEnlighten"/></Skill></SkillSet></Skills></PathOfBuilding>'
         out, idx = select_main_socket_group(xml)
         assert idx == 0 and 'mainSocketGroup="1"' in out
+
+
+class TestStripPlayerStats:
+    def test_strip(self):
+        from pathlib import Path
+        from src.pob.modifier import strip_player_stats
+        xml = (Path(__file__).parent / "fixtures" / "builds" / "cyclone_slayer.xml").read_text()
+        assert "<PlayerStat" in xml
+        out = strip_player_stats(xml)
+        assert "<PlayerStat" not in out and "<Tree" in out

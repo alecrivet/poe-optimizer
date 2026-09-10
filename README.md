@@ -293,6 +293,16 @@ isort src/ tests/
 
 ## Changelog
 
+### v0.11.4
+- **Result numbers matched the card.** Stats PoB saves into a build
+  (`<PlayerStat>`) are only valid for the config and main skill at save
+  time; imports changed both and then used the stale values as the
+  "accurate baseline", so the result page's absolute numbers were on the
+  pre-import scale (105K DPS) while the card was right. Changing the main
+  skill group or applying config defaults now drops the saved stats, and
+  the optimizer falls back to a fresh headless baseline.
+- Result page shows "CI" instead of "1 life" for Chaos Inoculation builds.
+
 ### v0.11.3
 - **Character import now goes through Path of Building's own importer.**
   A new `IMPORT` worker command feeds the account API data to PoB's

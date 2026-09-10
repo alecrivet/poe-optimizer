@@ -168,6 +168,31 @@ def ensure_config_element(xml: str) -> str:
     return xml[:idx] + "<Config></Config>" + xml[idx:]
 
 
+def strip_player_stats(xml: str) -> str:
+    """
+    Remove ``<PlayerStat>`` elements.
+
+    PoB writes the stats it last calculated into the build; they are only
+    valid for the configuration and main skill the build had at that moment.
+    After we change either (imports get a main skill and config defaults),
+    the numbers are stale and would be used as the "accurate baseline" for
+    ratio extrapolation, so every absolute number in a result would be on
+    the wrong scale. Without them, calculators fall back to a fresh headless
+    baseline.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return xml
+    changed = False
+    for parent in root.iter():
+        for child in list(parent):
+            if child.tag == "PlayerStat":
+                parent.remove(child)
+                changed = True
+    return ET.tostring(root, encoding="unicode") if changed else xml
+
+
 def select_main_socket_group(xml: str) -> Tuple[str, int]:
     """
     Choose the socket group most likely to be the main skill and write it
@@ -199,6 +224,11 @@ def select_main_socket_group(xml: str) -> Tuple[str, int]:
 
     build = root.find("Build")
     if best_idx and build is not None:
+        if build.get("mainSocketGroup") != str(best_idx):
+            # Saved stats belong to the old main skill
+            for child in list(build):
+                if child.tag == "PlayerStat":
+                    build.remove(child)
         build.set("mainSocketGroup", str(best_idx))
         for idx, group in enumerate(groups, start=1):
             group.set("mainActiveSkill", "1")

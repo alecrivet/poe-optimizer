@@ -306,6 +306,9 @@ async function showResult(jobId) {
 
 function statTile(k, r) {
   const label = { dps: "Damage", life: "Life", ehp: "Effective HP" }[k];
+  if (k === "life" && r.before.life <= 1 && r.after.life <= 1) {
+    return `<div class="stat"><span class="k">Life</span><span class="v">CI</span><span class="d ash">Chaos Inoculation; see effective HP</span></div>`;
+  }
   const d = r.change_pct[k];
   const cls = d > 0.05 ? "up" : d < -0.05 ? "down" : "ash";
   return `<div class="stat"><span class="k">${label}</span><span class="v">${fmt.big(r.after[k])}</span><span class="d ${cls}">${fmt.pct(d)} <span class="ash">was ${fmt.big(r.before[k])}</span></span></div>`;

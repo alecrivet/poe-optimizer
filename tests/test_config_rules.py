@@ -84,6 +84,10 @@ class TestRules:
         again, _ = apply_default_config(xml)
         assert again.count('name="channellingCycloneCheck"') == 1
 
+    def test_stale_player_stats_are_dropped(self):
+        xml, _ = apply_default_config(FIXTURE.read_text())
+        assert "<PlayerStat" not in xml
+
     def test_no_kill_conditions_are_assumed(self):
         xml, _ = apply_default_config(stripped_fixture())
         assert "conditionKilledRecently" not in xml

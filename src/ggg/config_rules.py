@@ -376,6 +376,13 @@ def apply_default_config(
         if activated:
             assumptions.append(Assumption("flasks", f"{activated} flask{'s' if activated != 1 else ''} active", "poe.ninja global rule"))
 
+    # The config changed, so any stats PoB saved into the build are stale.
+    build = root.find("Build")
+    if build is not None:
+        for child in list(build):
+            if child.tag == "PlayerStat":
+                build.remove(child)
+
     return ET.tostring(root, encoding="unicode"), assumptions
 
 
