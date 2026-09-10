@@ -47,13 +47,12 @@ Shipped items move to the README changelog; completed plans move to
       (`SET`-style item override). See `src/optimizer/gem_optimizer.py`.
 
 ### Import fidelity
-- [ ] **Config rulebook coverage.** `config_rules.py` covers ~30 of
-      poe.ninja's ~130 rules (charges, common buffs, leech, full/low life,
-      Cyclone, a few enemy conditions). Missing: enemy ailments
-      (shock/chill/ignite/bleed/poison with magnitudes), exposure, Rage,
-      Tailwind stacks, minion counts, Withered stacks, Intensify, Link
-      skills, brand attachment, Wither, Trinity resonance. Add by matching
-      PoB `ConfigOptions.lua` var names to sources.
+- [ ] **Config rulebook maintenance.** `config_rules.py` transcribes
+      poe.ninja's full rule list (92 rules, 2026-09). Not covered: the
+      Vixen's Entrapment / Doom Blast overlap rules, Soul Mantle
+      self-curse, "Disable EHP gain on block / suppress" (a PoB option
+      we don't set), and Searing Exarch implicit charge sources (item text
+      varies). Re-check the page each league and diff against RULES.
 - [ ] **Charges the owner didn't assume.** On the fixture the rules enable
       power (charge on block) and endurance (charge on melee crit) that the
       build's owner left off; the UI toggle covers it, but a confidence tier

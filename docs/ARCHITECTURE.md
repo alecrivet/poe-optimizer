@@ -152,12 +152,15 @@ Loopback only, no auth, by design.
 ## Import configuration (`src/ggg/config_rules.py`)
 
 An account import has no PoB config. `apply_default_config` writes one the
-way poe.ninja does (https://poe.ninja/poe1/builds/pob-rules): pinnacle boss
-and active flasks unconditionally, then each config variable (charges,
-Onslaught, Fortification, leeching, full life, Cyclone channelling, enemy
-taunted, ...) only when a *source* line for it exists in the build's item
-mods, gem names, allocated passive names/stats, mastery effects or
-ascendancy. Lines that only apply on kill are ignored. Each applied
+way poe.ninja does (https://poe.ninja/poe1/builds/pob-rules, transcribed
+as 92 `Rule` entries): pinnacle boss and active flasks unconditionally,
+then each config variable only when a *source* line for it exists in the
+build's item mods, gem names, allocated passive names/stats, mastery
+effects or ascendancy; a few are "everyone" rules (crit recently, enemy
+chilled/ignited/bleeding, one nearby enemy). Rules can carry numeric
+values (Rage 100, Wither 15, Virulence 40) or list values (Pride MAX), an
+`unless` clause (crit recently unless Resolute Technique) and `requires`
+(cold snap bypass needs frenzy charges). Lines that only apply on kill are ignored. Each applied
 assumption carries its source line; the web UI shows them as toggles and
 re-evaluates on change.
 

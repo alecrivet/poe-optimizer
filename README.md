@@ -304,6 +304,14 @@ isort src/ tests/
   source line that triggered it and can be unticked; numbers re-evaluate
   live. CLI: `account import` applies the same defaults
   (`--no-config-defaults` to skip) and prints what it assumed.
+- The rulebook is poe.ninja's full list (92 rules): charges of every kind,
+  buffs (Onslaught, Fortification, Rage at maximum, Tailwind, Elusive,
+  Adrenaline, Unholy Might, ...), "recently" conditions, enemy conditions
+  (taunted, maimed, intimidated, blinded, exposure, ash, and their
+  "everyone" rules for chilled / ignited / bleeding / crit recently /
+  1 nearby enemy), and skill specifics (Cyclone, Intensify, links, Wither,
+  Virulence, Pride, minion counts). Fixture: 3.57M raw import, 4.14M with
+  the owner's config, 9.52M with everything poe.ninja would assume.
 - Import robustness: mod entries that arrive as objects instead of strings
   (seen on a 3.29 character) no longer crash the converter; conversion
   failures return a readable error and log the raw item.

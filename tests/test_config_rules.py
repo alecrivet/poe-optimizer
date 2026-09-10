@@ -51,6 +51,25 @@ class TestRules:
             assert "Assassin" not in found["usePowerCharges"].reason
         assert "conditionEnemyMaimed" not in found   # "immunity to maim" is not a source
         assert "useFrenzyCharges" not in found       # no frenzy generation on this build
+        assert "conditionMinionsDiedRecently" not in found  # "your Minions take reduced reflect" is not a minion build
+        assert "conditionBeenHitRecently" not in found      # "when Hit by your Skills" is about enemies
+        assert "buffFortification" in found and "Overlord" in found["buffFortification"].reason
+        assert found["multiplierRage"].value == 100 and "Rage on Melee Hit" in found["multiplierRage"].reason
+        assert found["prideEffect"].value == "MAX"
+        # "everyone" rules from poe.ninja
+        for var in ("conditionCritRecently", "conditionEnemyChilled", "conditionEnemyIgnited", "conditionEnemyBleeding", "multiplierNearbyEnemies"):
+            assert var in found
+
+    def test_crit_recently_off_with_resolute_technique(self):
+        xml = stripped_fixture().replace("<Item id=\"1\">", "<Item id=\"1\">Resolute Technique\n", 1)
+        found = {a.var for a in evaluate_rules(xml)}
+        assert "conditionCritRecently" not in found
+
+    def test_numeric_values_are_written_as_numbers(self):
+        xml, _ = apply_default_config(stripped_fixture())
+        assert '<Input name="multiplierRage" number="100"' in xml
+        assert '<Input name="multiplierNearbyEnemies" number="1"' in xml
+        assert '<Input name="prideEffect" string="MAX"' in xml
 
     def test_apply_writes_config_and_flasks(self):
         xml, assumptions = apply_default_config(stripped_fixture())
