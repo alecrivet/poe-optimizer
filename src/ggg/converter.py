@@ -93,6 +93,9 @@ class ConversionOptions:
     tree_version: Optional[str] = None
     default_gem_level: int = 20
     default_gem_quality: int = 20
+    # Apply poe.ninja-style config defaults (pinnacle boss, flasks active,
+    # charges/buffs the build has a source for). See ggg/config_rules.py.
+    apply_config_defaults: bool = True
 
     def __post_init__(self):
         if self.tree_version is None:
@@ -114,6 +117,8 @@ class GGGToPoB:
 
     def __init__(self, options: Optional[ConversionOptions] = None):
         self.options = options or ConversionOptions()
+        # Assumptions applied by config defaults on the last convert() call
+        self.assumptions: list = []
 
     def convert(
         self,
@@ -166,7 +171,15 @@ class GGGToPoB:
         notes_elem = ET.SubElement(root, "Notes")
         notes_elem.text = f"Imported from GGG API: {character.name} ({character.league})"
 
-        return ET.tostring(root, encoding="unicode")
+        xml = ET.tostring(root, encoding="unicode")
+        self.assumptions = []
+        if self.options.apply_config_defaults:
+            from .config_rules import apply_default_config
+            try:
+                xml, self.assumptions = apply_default_config(xml, self.options.tree_version)
+            except Exception:  # never let defaults break an import
+                logger.warning("Config defaults could not be applied", exc_info=True)
+        return xml
 
     def _create_build_element(self, character: Character) -> ET.Element:
         """Create the <Build> element with character info."""
@@ -523,7 +536,7 @@ class GGGToPoB:
         if item.corrupted:
             lines.append("Corrupted")
 
-        item_elem.text = "\n".join(lines)
+        item_elem.text = "\n".join(str(line) for line in lines)
 
         return item_elem
 

@@ -281,3 +281,38 @@ class TestPassiveTree:
 
         assert "26725" in tree.jewel_data
         assert tree.jewel_data["26725"]["type"] == "ExpandedJewelSocketNode"
+
+
+class TestModNormalisation:
+    """Mod lists from the API are not always plain strings (seen on a 3.29 character)."""
+
+    def test_dict_and_nested_mod_entries_become_text(self):
+        from src.ggg.models import Item
+
+        data = {
+            "id": "abc",
+            "name": "Test Helm",
+            "typeLine": "Hubris Circlet",
+            "frameType": 2,
+            "ilvl": 84,
+            "implicitMods": [{"text": "+1 to Level of Socketed Gems", "tier": 1}],
+            "explicitMods": ["+80 to maximum Life", {"name": "Adds 3 to 7 Fire Damage"}, ["+10", "to Strength"], 5],
+            "craftedMods": {"text": "10% increased Rarity"},
+            "enchantMods": None,
+        }
+        item = Item.from_dict(data)
+        assert item.implicit_mods == ["+1 to Level of Socketed Gems"]
+        assert item.explicit_mods == ["+80 to maximum Life", "Adds 3 to 7 Fire Damage", "+10 to Strength", "5"]
+        assert item.crafted_mods == ["10% increased Rarity"]
+        assert item.enchant_mods == []
+
+    def test_converter_writes_item_text_for_dict_mods(self):
+        from src.ggg.converter import GGGToPoB
+        from src.ggg.models import Item
+
+        item = Item.from_dict({
+            "id": "x", "name": "Odd", "typeLine": "Leather Belt", "frameType": 2, "ilvl": 70,
+            "explicitMods": [{"text": "+30 to maximum Life"}],
+        })
+        elem = GGGToPoB()._item_to_xml(item, 1)
+        assert "+30 to maximum Life" in elem.text

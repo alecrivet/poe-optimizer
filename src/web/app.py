@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -41,6 +42,10 @@ class BuildRequest(BaseModel):
     character: Optional[str] = None
     poesessid: Optional[str] = None
     realm: str = "pc"
+
+
+class AssumptionsRequest(BaseModel):
+    disabled: list = []
 
 
 class JobRequest(BaseModel):
@@ -160,8 +165,23 @@ def _import_character(req: BuildRequest) -> str:
             raise HTTPException(404, f"No character named '{req.character}' on account '{req.account}'")
         passives = client.get_passive_skills(req.account, character.name)
         items = client.get_items(req.account, character.name)
-        converter = GGGToPoB(ConversionOptions(include_items=True, include_passives=True))
-        return converter.convert(character, items=items, passives=passives)
+        # Convert without defaults first so assumptions can be re-applied later
+        converter = GGGToPoB(ConversionOptions(include_items=True, include_passives=True,
+                                               apply_config_defaults=False))
+        try:
+            return converter.convert(character, items=items, passives=passives)
+        except Exception as e:  # pragma: no cover - depends on live API data
+            # Log the raw items so the odd shape can be inspected and fixed.
+            for it in getattr(items, "items", []) or []:
+                raw = getattr(it, "_raw_data", None)
+                if raw is not None:
+                    odd = {k: type(v).__name__ for k, v in raw.items() if k.endswith("Mods") and v and not all(isinstance(x, str) for x in v)}
+                    if odd:
+                        logger.warning("Item %r (%s) has non-string mod entries: %s :: %s",
+                                       raw.get("name"), raw.get("typeLine"), odd, json.dumps(raw)[:2000])
+            logger.exception("Converting %s/%s to PoB failed", req.account, character.name)
+            raise HTTPException(502, f"Imported {character.name} but could not convert an item to Path of Building format: {e}. "
+                                     "Try exporting the build from PoB and pasting the code instead.")
     except PrivateProfileError:
         raise HTTPException(403, "This profile is private. Add your POESESSID to import it.")
     except CharacterNotFoundError as e:
@@ -175,6 +195,62 @@ def _import_character(req: BuildRequest) -> str:
             pass
 
 
+def _apply_assumptions(raw_xml: str, disabled: set) -> tuple:
+    """Apply config defaults to an imported build, minus the disabled ones."""
+    from src.ggg.config_rules import apply_default_config, describe
+
+    xml, assumptions = apply_default_config(raw_xml)
+    kept = [a for a in assumptions if a.var not in disabled]
+    if len(kept) != len(assumptions):
+        # Rebuild without the disabled inputs / flasks
+        root = ET.fromstring(xml)
+        for inp in root.iter("Input"):
+            if inp.get("name") in disabled and inp.get("boolean"):
+                inp.set("boolean", "false")
+        if "flasks" in disabled:
+            for slot in root.iter("Slot"):
+                if (slot.get("name") or "").startswith("Flask"):
+                    slot.attrib.pop("active", None)
+        if "enemy" in disabled:
+            for inp in root.iter("Input"):
+                if inp.get("name") == "enemyIsBoss":
+                    inp.set("string", "None")
+        xml = ET.tostring(root, encoding="unicode")
+    out = describe(assumptions)
+    for a in out:
+        a["enabled"] = a["var"] not in disabled
+    return xml, out
+
+
+class _Evaluator:
+    """One lazily started PoB worker for quick headless stat estimates."""
+
+    def __init__(self):
+        self.pool = None
+
+    def stats(self, xml: str) -> Optional[Dict[str, float]]:
+        from src.pob.worker_pool import PoBWorkerPool
+        try:
+            if self.pool is None:
+                self.pool = PoBWorkerPool(num_workers=1)
+                self.pool.start()
+            res = self.pool.evaluate(xml, timeout=120)
+            if not res.success:
+                logger.warning("headless estimate failed: %s", res.error)
+                return None
+            st = res.stats
+            return {"dps": float(st.get("combinedDPS", 0)), "life": float(st.get("life", 0)),
+                    "ehp": float(st.get("totalEHP", 0)), "energy_shield": float(st.get("energyShield", 0))}
+        except Exception:
+            logger.warning("headless estimate failed", exc_info=True)
+            return None
+
+    def shutdown(self):
+        if self.pool is not None:
+            self.pool.shutdown()
+            self.pool = None
+
+
 # ---------------------------------------------------------------------- #
 # App factory
 # ---------------------------------------------------------------------- #
@@ -185,12 +261,15 @@ def create_app(pob_path: Optional[Path] = None, workers: Optional[int] = None) -
 
     runner = JobRunner(workers=workers)
     builds: Dict[str, Dict[str, Any]] = {}
+    evaluator = _Evaluator()
     app.state.runner = runner
     app.state.builds = builds
+    app.state.evaluator = evaluator
 
     @app.on_event("shutdown")
     def _shutdown():
         runner.stop()
+        evaluator.shutdown()
 
     # -------------------------------------------------------------- #
     # Static front end
@@ -210,16 +289,43 @@ def create_app(pob_path: Optional[Path] = None, workers: Optional[int] = None) -
     # Builds
     # -------------------------------------------------------------- #
 
+    def _finish_import(build_id: str, raw_xml: str, disabled: set) -> Dict[str, Any]:
+        xml, assumptions = _apply_assumptions(raw_xml, disabled)
+        card = build_card(xml, "account")
+        est = evaluator.stats(xml)
+        if est:
+            card["stats"] = est
+            card["stats_source"] = "estimated"
+        card["assumptions"] = assumptions
+        builds[build_id] = {"xml": xml, "raw_xml": raw_xml, "disabled": set(disabled), "card": card}
+        return card
+
     @app.post("/api/builds")
     def create_build(req: BuildRequest):
         xml, source = _load_build(req)
+        build_id = uuid.uuid4().hex[:12]
         try:
-            card = build_card(xml, source)
+            if source == "account":
+                card = _finish_import(build_id, xml, set())
+            else:
+                card = build_card(xml, source)
+                card["assumptions"] = []
+                builds[build_id] = {"xml": xml, "card": card}
+        except HTTPException:
+            raise
         except Exception as e:
             logger.debug("build card failed", exc_info=True)
             raise HTTPException(400, f"Could not read that build: {e}")
-        build_id = uuid.uuid4().hex[:12]
-        builds[build_id] = {"xml": xml, "card": card}
+        return {"build_id": build_id, **card}
+
+    @app.patch("/api/builds/{build_id}/assumptions")
+    def patch_assumptions(build_id: str, req: AssumptionsRequest):
+        b = builds.get(build_id)
+        if not b:
+            raise HTTPException(404, "Unknown build")
+        if "raw_xml" not in b:
+            raise HTTPException(400, "Assumptions only apply to imported characters")
+        card = _finish_import(build_id, b["raw_xml"], set(req.disabled))
         return {"build_id": build_id, **card}
 
     @app.get("/api/builds/{build_id}")

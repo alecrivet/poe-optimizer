@@ -293,6 +293,22 @@ isort src/ tests/
 
 ## Changelog
 
+### v0.11.1
+- **Imported characters get a real configuration.** A character from the
+  account API has no PoB config, so its numbers were a fraction of the
+  player's own file (fixture: 3.57M DPS / 29K EHP raw vs 4.14M / 40K with
+  the owner's config). Imports now apply poe.ninja-style defaults: pinnacle
+  boss, flasks active, and every charge, buff and condition the build has a
+  source for (item mods, gem names, allocated passives, ascendancy), never
+  "on kill" effects. Every assumption is shown on the build card with the
+  source line that triggered it and can be unticked; numbers re-evaluate
+  live. CLI: `account import` applies the same defaults
+  (`--no-config-defaults` to skip) and prints what it assumed.
+- Import robustness: mod entries that arrive as objects instead of strings
+  (seen on a 3.29 character) no longer crash the converter; conversion
+  failures return a readable error and log the raw item.
+- Every XML sent to a PoB worker is guaranteed a `<Config>` element.
+
 ### v0.11.0
 - **Local web UI** (`poe-optimizer web`): one page for players who don't use
   a terminal. Import a character from your account (character picker,

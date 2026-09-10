@@ -104,6 +104,13 @@ details.fine.inline label { display: block; margin-top: 8px; }
 .build-card .who { font-family: var(--disp); font-size: 15px; }
 .build-card .right { margin-left: auto; color: var(--ash); font-size: 14px; }
 
+.assumptions { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; padding-top: 12px; border-top: 1px solid #232a34; }
+.assumptions .k { font-family: var(--disp); font-size: 11px; letter-spacing: .14em; color: var(--ash); text-transform: uppercase; margin-right: 6px; }
+.assumptions .note { flex-basis: 100%; font-size: 13px; }
+.assume { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; background: var(--stone2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 6px; cursor: pointer; }
+.assume:has(input:not(:checked)) { opacity: .55; text-decoration: line-through; }
+.assume input { accent-color: var(--ember); margin: 0; }
+
 .goal { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .goal .opt { padding: 16px; }
 .guards { margin-top: 14px; display: flex; gap: 22px; align-items: baseline; flex-wrap: wrap; font-size: 15px; color: var(--ash); }

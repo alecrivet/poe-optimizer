@@ -110,6 +110,37 @@ class Item:
     hunter: bool = False
     warlord: bool = False
 
+    @staticmethod
+    def _mod_texts(entries: Any) -> List[str]:
+        """
+        Normalise a mod list from the API to plain strings.
+
+        The character-window API usually returns lists of strings, but some
+        responses carry objects (e.g. ``{"text": ..., ...}``) or nested
+        values. Anything that is not a string is reduced to its ``text`` /
+        ``name`` field or a readable fallback so a single odd item cannot
+        abort an import.
+        """
+        out: List[str] = []
+        if not entries:
+            return out
+        if isinstance(entries, (str, dict)):
+            entries = [entries]
+        for e in entries:
+            if isinstance(e, str):
+                out.append(e)
+            elif isinstance(e, dict):
+                text = e.get("text") or e.get("name") or e.get("displayName")
+                if not text and isinstance(e.get("values"), list) and e["values"]:
+                    first = e["values"][0]
+                    text = str(first[0] if isinstance(first, (list, tuple)) and first else first)
+                out.append(str(text) if text else " ".join(str(v) for v in e.values() if isinstance(v, (str, int, float))))
+            elif isinstance(e, (list, tuple)):
+                out.append(" ".join(str(x) for x in e))
+            elif e is not None:
+                out.append(str(e))
+        return out
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Item":
         sockets = [
@@ -119,9 +150,9 @@ class Item:
 
         item = cls(
             id=data["id"],
-            name=data.get("name", ""),
-            type_line=data.get("typeLine", ""),
-            base_type=data.get("baseType", data.get("typeLine", "")),
+            name=str(data.get("name") or ""),
+            type_line=str(data.get("typeLine") or ""),
+            base_type=str(data.get("baseType") or data.get("typeLine") or ""),
             rarity=cls._rarity_from_frame(data.get("frameType", 0)),
             ilvl=data.get("ilvl", 1),
             icon=data.get("icon", ""),
@@ -129,11 +160,11 @@ class Item:
             identified=data.get("identified", True),
             corrupted=data.get("corrupted", False),
             sockets=sockets,
-            implicit_mods=data.get("implicitMods", []),
-            explicit_mods=data.get("explicitMods", []),
-            crafted_mods=data.get("craftedMods", []),
-            enchant_mods=data.get("enchantMods", []),
-            fractured_mods=data.get("fracturedMods", []),
+            implicit_mods=cls._mod_texts(data.get("implicitMods")),
+            explicit_mods=cls._mod_texts(data.get("explicitMods")),
+            crafted_mods=cls._mod_texts(data.get("craftedMods")),
+            enchant_mods=cls._mod_texts(data.get("enchantMods")),
+            fractured_mods=cls._mod_texts(data.get("fracturedMods")),
             shaper=data.get("shaper", False),
             elder=data.get("elder", False),
             crusader=data.get("crusader", False),

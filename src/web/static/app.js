@@ -109,7 +109,7 @@ function showBuildCard(card, placeholder) {
   const statsLine = card.stats_source === "none"
     ? '<span class="note">Stats will be calculated when you run.</span>'
     : `<span class="mono small ash">${fmt.big(s.dps)} dps · ${fmt.big(s.life)} life · ${fmt.big(s.ehp)} ehp · ${card.points} points</span>`;
-  const src = card.stats_source === "pob" ? "Numbers from Path of Building" : card.stats_source === "estimated" ? "Numbers estimated (no PoB config yet)" : "";
+  const src = card.stats_source === "pob" ? "Numbers from Path of Building" : card.stats_source === "estimated" ? "Numbers estimated with the assumptions below" : "";
   const jew = [];
   if (card.jewels.timeless) jew.push(card.jewels.timeless + " timeless");
   if (card.jewels.cluster) jew.push(card.jewels.cluster + " cluster");
@@ -118,7 +118,30 @@ function showBuildCard(card, placeholder) {
     <span class="who">${esc(who)}</span>
     ${card.main_skill ? `<span class="small">${esc(card.main_skill)}</span>` : ""}
     ${statsLine}
-    <span class="right">Tree ${esc((card.tree_version || "?").replace("_", "."))}${jew.length ? " · " + jew.join(", ") : ""}${src ? " · " + src : ""}</span>`;
+    <span class="right">Tree ${esc((card.tree_version || "?").replace("_", "."))}${jew.length ? " · " + jew.join(", ") : ""}${src ? " · " + src : ""}</span>
+    ${renderAssumptions(card)}`;
+  el.querySelectorAll(".assume input").forEach((cb) => cb.addEventListener("change", () => toggleAssumption(card, cb)));
+}
+
+function renderAssumptions(card) {
+  const list = card.assumptions || [];
+  if (!list.length) return "";
+  const chips = list.map((a) => `
+    <label class="assume" title="${esc(a.reason)}"><input type="checkbox" data-var="${esc(a.var)}" ${a.enabled === false ? "" : "checked"}> ${esc(a.label)}</label>`).join("");
+  return `<div class="assumptions"><span class="k">Assumed for the numbers</span>${chips}<span class="note">Hover a tag to see why. Untick anything you don't keep up on bosses.</span></div>`;
+}
+
+async function toggleAssumption(card, cb) {
+  const disabled = [...document.querySelectorAll("#build-card .assume input")].filter((x) => !x.checked).map((x) => x.dataset.var);
+  document.querySelectorAll("#build-card .assume input").forEach((x) => { x.disabled = true; });
+  try {
+    const updated = await api(`/api/builds/${card.build_id}/assumptions`, { method: "PATCH", body: JSON.stringify({ disabled }) });
+    state.build = updated;
+    showBuildCard(updated);
+  } catch (e) {
+    setError(e.message);
+    document.querySelectorAll("#build-card .assume input").forEach((x) => { x.disabled = false; });
+  }
 }
 
 function onBuildLoaded(card) {

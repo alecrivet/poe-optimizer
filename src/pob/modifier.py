@@ -151,6 +151,23 @@ def modify_passive_tree_nodes(
     return ET.tostring(root, encoding="unicode")
 
 
+def ensure_config_element(xml: str) -> str:
+    """
+    Guarantee the build has a ``<Config>`` element.
+
+    ``ConfigTab:Load`` (which seeds PoB's config defaults, e.g. enemy is a
+    pinnacle boss) only runs when the element exists. Builds exported from
+    PoB always have one; hand-built or converted XML may not. Every XML sent
+    to a worker goes through this so both kinds evaluate the same way.
+    """
+    if "<Config" in xml:
+        return xml
+    idx = xml.rfind("</PathOfBuilding>")
+    if idx < 0:
+        return xml
+    return xml[:idx] + "<Config></Config>" + xml[idx:]
+
+
 def set_passive_tree(
     xml: str,
     nodes: Iterable[int],

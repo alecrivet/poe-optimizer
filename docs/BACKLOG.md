@@ -46,6 +46,23 @@ Shipped items move to the README changelog; completed plans move to
       accuracy/crit gems, or move gem swaps onto the session protocol
       (`SET`-style item override). See `src/optimizer/gem_optimizer.py`.
 
+### Import fidelity
+- [ ] **Config rulebook coverage.** `config_rules.py` covers ~30 of
+      poe.ninja's ~130 rules (charges, common buffs, leech, full/low life,
+      Cyclone, a few enemy conditions). Missing: enemy ailments
+      (shock/chill/ignite/bleed/poison with magnitudes), exposure, Rage,
+      Tailwind stacks, minion counts, Withered stacks, Intensify, Link
+      skills, brand attachment, Wither, Trinity resonance. Add by matching
+      PoB `ConfigOptions.lua` var names to sources.
+- [ ] **Charges the owner didn't assume.** On the fixture the rules enable
+      power (charge on block) and endurance (charge on melee crit) that the
+      build's owner left off; the UI toggle covers it, but a confidence tier
+      ("always" vs "sometimes") shown as pre-unticked chips would be better.
+- [ ] **Headless vs desktop gap.** The fixture evaluates to 4.14M DPS
+      headless vs 3.55M in the XML's PlayerStats with the same config. Not
+      explained by config presence (checked 2026-09-09). Candidates: stale
+      PlayerStats in the export, FullDPS/skill selection, pantheon handling.
+
 ### Tooling
 - [ ] CI: GitHub Actions running the non-PoB unit tests on push; a nightly
       job with the submodule + luajit for the integration tests.

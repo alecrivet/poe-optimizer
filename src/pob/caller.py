@@ -190,6 +190,9 @@ class PoBCalculator:
         Raises:
             PoBCalculatorError: If evaluation fails
         """
+        from .modifier import ensure_config_element
+        build_xml = ensure_config_element(build_xml)
+
         # Create temporary file for build XML
         with tempfile.NamedTemporaryFile(
             mode='w',

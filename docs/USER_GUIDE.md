@@ -31,6 +31,12 @@ tree drawn, before/after stats, and a "Copy new build code" button. It runs
 entirely on your machine. `--port`, `--workers` and `--no-browser` are the
 only options.
 
+For a character imported from your account, the build card lists what the
+tool assumed to produce its numbers (pinnacle boss, flasks active, charges
+and buffs the build has a source for). Hover a tag to see the source line;
+untick anything you don't keep up on bosses and the numbers update. A pasted
+PoB code keeps your own configuration instead.
+
 Everything below is the command-line equivalent.
 
 ## Get a build in

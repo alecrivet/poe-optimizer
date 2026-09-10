@@ -133,6 +133,13 @@ def list_characters(
     help="Import only passive tree (faster, smaller output)."
 )
 @click.option(
+    "--no-config-defaults",
+    is_flag=True,
+    default=False,
+    help="Don't apply poe.ninja-style PoB config defaults (pinnacle boss, flasks active, "
+         "charges and buffs the build has a source for)."
+)
+@click.option(
     "--tree-version", "-t",
     default=None,
     help="Passive tree version. Default: auto-detect latest from PoB data."
@@ -147,6 +154,7 @@ def import_character(
     poesessid: Optional[str],
     pob_code: bool,
     passives_only: bool,
+    no_config_defaults: bool,
     tree_version: Optional[str],
     json_output: bool,
     output_file: Optional[str],
@@ -212,10 +220,14 @@ def import_character(
             include_items=not passives_only,
             include_passives=True,
             tree_version=tree_version,
+            apply_config_defaults=not no_config_defaults,
         )
 
         converter = GGGToPoB(options)
         xml_str = converter.convert(character, items, passives)
+        if converter.assumptions:
+            output.progress("Config assumed: " + ", ".join(a.label for a in converter.assumptions)
+                            + " (use --no-config-defaults to skip)")
 
         # Output result
         if pob_code:

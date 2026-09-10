@@ -112,3 +112,33 @@ class TestJobsEndToEnd:
         # Cancelling a finished job is harmless; cancelling an unknown one is 404
         assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 200
         assert client.post("/api/jobs/nope/cancel").status_code == 404
+
+
+@needs_pob
+class TestImportedBuildAssumptions:
+    def test_patch_assumptions_recomputes_card(self, client, monkeypatch):
+        """Simulate an account import by feeding the raw-converted XML path."""
+        import re
+        from src.web import app as app_module
+
+        xml = (FIXTURES / "cyclone_slayer.xml").read_text()
+        raw = re.sub(r"<Config .*?</Config>", "<Config></Config>", xml, flags=re.S).replace(' active="true"', "")
+        monkeypatch.setattr(app_module, "_import_character", lambda req: raw)
+
+        card = client.post("/api/builds", json={"account": "a", "character": "b"}).json()
+        assert card["stats_source"] == "estimated" and card["stats"]["dps"] > 0
+        vars_ = {a["var"] for a in card["assumptions"]}
+        assert {"enemy", "flasks", "channellingCycloneCheck"} <= vars_
+        dps_all = card["stats"]["dps"]
+
+        patched = client.patch(f"/api/builds/{card['build_id']}/assumptions", json={"disabled": ["flasks", "useEnduranceCharges", "usePowerCharges"]}).json()
+        assert patched["stats"]["dps"] < dps_all
+        off = {a["var"] for a in patched["assumptions"] if not a["enabled"]}
+        assert "flasks" in off
+        b = client.get(f"/api/builds/{card['build_id']}").json()
+        assert b["stats"]["dps"] == patched["stats"]["dps"]
+
+    def test_patch_rejects_pasted_builds(self, client):
+        xml = (FIXTURES / "cyclone_slayer.xml").read_text()
+        build_id = client.post("/api/builds", json={"xml": xml}).json()["build_id"]
+        assert client.patch(f"/api/builds/{build_id}/assumptions", json={"disabled": []}).status_code == 400

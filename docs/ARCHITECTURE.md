@@ -149,6 +149,18 @@ from a per-job history so a reconnecting tab misses nothing), `GET
 the tree-data export, clipped to the build's bounding box with pan/zoom.
 Loopback only, no auth, by design.
 
+## Import configuration (`src/ggg/config_rules.py`)
+
+An account import has no PoB config. `apply_default_config` writes one the
+way poe.ninja does (https://poe.ninja/poe1/builds/pob-rules): pinnacle boss
+and active flasks unconditionally, then each config variable (charges,
+Onslaught, Fortification, leeching, full life, Cyclone channelling, enemy
+taunted, ...) only when a *source* line for it exists in the build's item
+mods, gem names, allocated passive names/stats, mastery effects or
+ascendancy. Lines that only apply on kill are ignored. Each applied
+assumption carries its source line; the web UI shows them as toggles and
+re-evaluates on change.
+
 ## Build representation
 
 - `codec.py`: PoB import code <-> XML (zlib + base64url).

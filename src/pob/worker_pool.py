@@ -45,6 +45,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, TypeVar
 
+from .modifier import ensure_config_element
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -316,7 +318,7 @@ class PoBWorker:
     def evaluate(self, build_xml: str, timeout: float = 60.0) -> EvaluationResult:
         """Full-reload evaluation of a build XML (~3-5 s)."""
         try:
-            encoded = base64.b64encode(build_xml.encode("utf-8")).decode("ascii")
+            encoded = base64.b64encode(ensure_config_element(build_xml).encode("utf-8")).decode("ascii")
             result = self._to_result(self._request(encoded, timeout))
             # A legacy full reload replaces any session build on the Lua side
             self.session_loaded = False
@@ -327,7 +329,7 @@ class PoBWorker:
     def load_session(self, build_xml: str, timeout: float = 120.0) -> EvaluationResult:
         """Load a build as the session base and return its baseline stats."""
         try:
-            encoded = base64.b64encode(build_xml.encode("utf-8")).decode("ascii")
+            encoded = base64.b64encode(ensure_config_element(build_xml).encode("utf-8")).decode("ascii")
             result = self._to_result(self._request("LOAD " + encoded, timeout))
             self.session_loaded = result.success
             return result
